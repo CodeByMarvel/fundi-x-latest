@@ -1,6 +1,6 @@
 import { Bell, MapPin } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../../shared/theme/colors';
+import { colors } from '../theme/colors';
 
 type Props = {
   firstName: string;

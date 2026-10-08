@@ -96,6 +96,23 @@ describe('job transitions', () => {
     expect(canTransition('PAYMENT_PENDING', 'PAID', 'CUSTOMER')).toBe(false);
   });
 
+  it('does not let a provider cancel a job that is still searching', () => {
+    expect(canTransition('SEARCHING', 'CANCELLED', 'PROVIDER')).toBe(false);
+  });
+
+  it('lets only the provider withdraw a quote to revise it', () => {
+    expect(canTransition('QUOTE_SENT', 'DIAGNOSING', 'PROVIDER')).toBe(true);
+    expect(canTransition('QUOTE_SENT', 'DIAGNOSING', 'CUSTOMER')).toBe(false);
+  });
+
+  it('blocks approving a quote while it is being revised', () => {
+    const quoted: Job = { ...job, status: 'QUOTE_SENT' };
+    const revising = applyTransition(quoted, 'DIAGNOSING', 'PROVIDER', at(1));
+    expect(() =>
+      applyTransition(revising.job, 'IN_PROGRESS', 'CUSTOMER', at(2)),
+    ).toThrow(JobTransitionError);
+  });
+
   it('sends a declined or expired offer back to searching', () => {
     expect(canTransition('OFFERED', 'SEARCHING', 'PROVIDER')).toBe(true);
     expect(canTransition('OFFERED', 'SEARCHING', 'SYSTEM')).toBe(true);

@@ -1,3 +1,4 @@
+import type { CreateJobInput } from '../../domain/jobs/types';
 import { getCategory } from './data/categories';
 import { QUESTIONS } from './data/questions';
 import { Answers, RequestDraft, Vehicle } from './types';
@@ -174,6 +175,40 @@ export function applyChange(
   }
 
   return { ...next, answers: pruneAnswers(next.categoryId, next.answers) };
+}
+
+/**
+ * Turns a finished draft into what the job repository needs. The draft's
+ * fields are optional while the customer fills it in; this is where we
+ * insist they're all there.
+ */
+export function buildCreateJobInput(
+  draft: RequestDraft,
+  vehicle?: Vehicle,
+): CreateJobInput {
+  const { requestType, categoryId, drivability, location, urgency } = draft;
+  if (
+    !requestType ||
+    !categoryId ||
+    !vehicle ||
+    !drivability ||
+    !location ||
+    !urgency
+  ) {
+    throw new Error('Cannot create a job from an incomplete request');
+  }
+
+  return {
+    requestType,
+    categoryId,
+    vehicle: { ...vehicle },
+    answers: draft.answers,
+    description: draft.description.trim(),
+    drivability,
+    location,
+    urgency,
+    ...(draft.scheduledFor && { scheduledFor: draft.scheduledFor }),
+  };
 }
 
 /**

@@ -41,6 +41,9 @@ export const TRANSITIONS: TransitionTable = {
     IN_PROGRESS: ['CUSTOMER'],
     // Customer rejects the quote and pays only the call-out/inspection fee.
     PAYMENT_PENDING: ['CUSTOMER'],
+    // Provider withdraws the quote to revise it. While the job is back in
+    // DIAGNOSING, the old quote can't be approved.
+    DIAGNOSING: ['PROVIDER'],
   },
   IN_PROGRESS: {
     AWAITING_CONFIRMATION: ['PROVIDER'],

@@ -3,25 +3,25 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Building2, Wrench } from 'lucide-react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useActiveJob } from '../../data/useJob';
 import { SectionTitle } from '../../shared/components/SectionTitle';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { ActiveJobCard } from '../components/home/ActiveJobCard';
 import { FindHelpCard } from '../components/home/FindHelpCard';
-import { HomeHeader } from '../components/home/HomeHeader';
+import { HomeHeader } from '../../shared/components/HomeHeader';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { ProviderCard } from '../components/home/ProviderCard';
 import { ProviderTypeCard } from '../components/home/ProviderTypeCard';
 import { RecentServiceCard } from '../components/home/RecentServiceCard';
-import {
-  activeJob,
-  customer,
-  nearbyProviders,
-  recentService,
-} from '../data/mockHome';
+import { customer, nearbyProviders, recentService } from '../data/mockHome';
+import { vehicleName } from '../data/mockVehicles';
+import { customerStatusView, jobProgress } from '../jobs/jobPresentation';
+import { getCategory } from '../request/data/categories';
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const activeJob = useActiveJob();
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
     useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
@@ -44,7 +44,15 @@ export function HomeScreen() {
       {activeJob && (
         <View style={styles.section}>
           <SectionTitle>Active job</SectionTitle>
-          <ActiveJobCard job={activeJob} />
+          <ActiveJobCard
+            car={vehicleName(activeJob.vehicle)}
+            service={getCategory(activeJob.categoryId)?.label ?? ''}
+            status={customerStatusView(activeJob.status).short}
+            progress={jobProgress(activeJob.status)}
+            onViewJob={() =>
+              navigation.navigate('JobTracking', { jobId: activeJob.id })
+            }
+          />
         </View>
       )}
 

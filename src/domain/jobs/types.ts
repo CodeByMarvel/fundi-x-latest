@@ -39,6 +39,11 @@ export type Job = {
   customerId: string;
   /** Set once a provider accepts. */
   providerId?: string;
+  /**
+   * The provider currently being asked to take the job. Only set while the
+   * job is OFFERED; past offers live in the job's events.
+   */
+  offeredProviderId?: string;
 
   requestType: RequestType;
   categoryId: string;
@@ -59,6 +64,23 @@ export type Job = {
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * What a customer supplies to open a job. Everything else (id, customerId,
+ * status, timestamps) is decided by the backend, not the app.
+ */
+export type CreateJobInput = Pick<
+  Job,
+  | 'requestType'
+  | 'categoryId'
+  | 'vehicle'
+  | 'answers'
+  | 'description'
+  | 'drivability'
+  | 'location'
+  | 'urgency'
+  | 'scheduledFor'
+>;
 
 /** One entry in a job's audit trail. Events are only ever added, never edited. */
 export type JobEvent = {

@@ -1,23 +1,30 @@
 import { ChevronRight } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../../shared/theme/colors';
-import { ActiveJob } from '../../data/mockHome';
 
 type Props = {
-  job: ActiveJob;
+  car: string;
+  service: string;
+  status: string;
+  /** 0 to 1 */
+  progress: number;
   onViewJob?: () => void;
 };
 
-export function ActiveJobCard({ job, onViewJob }: Props) {
-  const percent = `${Math.round(job.progress * 100)}%` as const;
+export function ActiveJobCard({
+  car,
+  service,
+  status,
+  progress,
+  onViewJob,
+}: Props) {
+  const percent = `${Math.round(progress * 100)}%` as const;
 
   return (
     <View style={styles.card}>
-      <Text style={styles.car}>{job.car}</Text>
-      <Text style={styles.service}>{job.service}</Text>
-      <Text style={styles.status}>
-        <Text style={styles.mechanic}>{job.mechanicName}</Text> {job.status}
-      </Text>
+      <Text style={styles.car}>{car}</Text>
+      <Text style={styles.service}>{service}</Text>
+      <Text style={styles.status}>{status}</Text>
 
       <View style={styles.track}>
         <View style={[styles.fill, { width: percent }]} />
@@ -55,12 +62,9 @@ const styles = StyleSheet.create({
   },
   status: {
     fontSize: 14,
-    color: colors.textDark,
-    marginTop: 10,
-  },
-  mechanic: {
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.primary,
+    marginTop: 10,
   },
   track: {
     height: 4,

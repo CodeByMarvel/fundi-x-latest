@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { jobRepository } from '../../data/jobRepository';
 import { colors } from '../../shared/theme/colors';
 import { mockVehicles } from '../data/mockVehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
@@ -15,7 +16,7 @@ import { RequestHeader } from './components/RequestHeader';
 import { QUESTIONS } from './data/questions';
 import {
   applyChange,
-  buildRequestPayload,
+  buildCreateJobInput,
   getNextStep,
   getSteps,
   questionIdOf,
@@ -44,6 +45,8 @@ export function RequestFlowScreen({ navigation }: Props) {
   const [editingFromReview, setEditingFromReview] = useState(false);
   // TODO: load from and save to the customer's garage on the backend.
   const [vehicles, setVehicles] = useState<Vehicle[]>(mockVehicles);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const step = history[history.length - 1];
   const vehicle = vehicles.find(v => v.id === draft.vehicleId);
@@ -74,6 +77,10 @@ export function RequestFlowScreen({ navigation }: Props) {
   };
 
   const exit = () => {
+    // The request is already on its way; leaving now would orphan the job.
+    if (submittingRef.current) {
+      return;
+    }
     if (!draft.requestType) {
       navigation.goBack();
       return;
@@ -89,6 +96,9 @@ export function RequestFlowScreen({ navigation }: Props) {
   };
 
   const goBack = () => {
+    if (submittingRef.current) {
+      return;
+    }
     // Skip steps that an answer change has since removed from the flow.
     const valid = getSteps(draft);
     const prev = history.slice(0, -1);
@@ -114,11 +124,25 @@ export function RequestFlowScreen({ navigation }: Props) {
     return () => sub.remove();
   });
 
-  const submit = () => {
-    const payload = buildRequestPayload(draft, vehicle);
-    // TODO: send to the backend.
-    console.log('Request payload', JSON.stringify(payload, null, 2));
-    navigation.replace('RequestSubmitted');
+  const submit = async () => {
+    // A ref, not state: two taps in the same frame would both still read the
+    // old `submitting` state, and we'd create the job twice.
+    if (submittingRef.current) {
+      return;
+    }
+    submittingRef.current = true;
+    setSubmitting(true);
+
+    try {
+      const job = await jobRepository.createJob(
+        buildCreateJobInput(draft, vehicle),
+      );
+      navigation.replace('RequestSubmitted', { jobId: job.id });
+    } catch {
+      submittingRef.current = false;
+      setSubmitting(false);
+      Alert.alert("Couldn't send your request", 'Please try again.');
+    }
   };
 
   const renderStep = () => {
@@ -159,6 +183,7 @@ export function RequestFlowScreen({ navigation }: Props) {
             vehicle={vehicle}
             onEdit={onEdit}
             onSubmit={submit}
+            submitting={submitting}
           />
         );
     }

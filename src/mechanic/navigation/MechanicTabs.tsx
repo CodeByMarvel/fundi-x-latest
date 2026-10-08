@@ -23,7 +23,7 @@ const TAB_ICONS = {
 };
 
 export function MechanicTabs() {
-  const screenOptions = useTabScreenOptions(TAB_ICONS);
+  const screenOptions = useTabScreenOptions(TAB_ICONS, { floating: true });
 
   return (
     <Tab.Navigator screenOptions={screenOptions}>

@@ -16,6 +16,8 @@ type Props = {
   vehicle?: Vehicle;
   onEdit: (step: StepKey) => void;
   onSubmit: () => void;
+  /** True while the request is being sent. */
+  submitting?: boolean;
 };
 
 function urgencyText(draft: RequestDraft) {
@@ -33,7 +35,13 @@ function urgencyText(draft: RequestDraft) {
   }
 }
 
-export function ReviewStep({ draft, vehicle, onEdit, onSubmit }: Props) {
+export function ReviewStep({
+  draft,
+  vehicle,
+  onEdit,
+  onSubmit,
+  submitting = false,
+}: Props) {
   const category = getCategory(draft.categoryId);
   const questionIds = resolveQuestionPath(draft.categoryId, draft.answers);
   const drivability = DRIVABILITY_OPTIONS.find(o => o.id === draft.drivability);
@@ -47,7 +55,11 @@ export function ReviewStep({ draft, vehicle, onEdit, onSubmit }: Props) {
           <Text style={styles.note}>
             You won't be charged for repairs until you approve the quote.
           </Text>
-          <PrimaryButton label="Request help" onPress={onSubmit} />
+          <PrimaryButton
+            label={submitting ? 'Sending request…' : 'Request help'}
+            onPress={onSubmit}
+            disabled={submitting}
+          />
         </>
       }
     >
