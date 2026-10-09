@@ -139,8 +139,18 @@ describe('job transitions', () => {
   });
 
   it('allows nothing out of a finished job', () => {
-    for (const status of ['COMPLETED', 'CANCELLED', 'DISPUTED'] as const) {
+    for (const status of ['COMPLETED', 'CANCELLED'] as const) {
       expect(isTerminalStatus(status)).toBe(true);
     }
+  });
+
+  it('lets only support move a disputed job on', () => {
+    expect(isTerminalStatus('DISPUTED')).toBe(false);
+    expect(allowedNextStatuses('DISPUTED', 'SYSTEM')).toEqual([
+      'IN_PROGRESS',
+      'CANCELLED',
+    ]);
+    expect(allowedNextStatuses('DISPUTED', 'CUSTOMER')).toEqual([]);
+    expect(allowedNextStatuses('DISPUTED', 'PROVIDER')).toEqual([]);
   });
 });

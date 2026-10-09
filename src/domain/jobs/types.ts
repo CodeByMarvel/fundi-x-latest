@@ -7,6 +7,7 @@ import type {
   Urgency,
   Vehicle,
 } from '../../customer/request/types';
+import type { Cents } from '../money';
 
 /**
  * Where a job is in its lifecycle. This is the domain's view of a job, not
@@ -44,6 +45,10 @@ export type Job = {
    * job is OFFERED; past offers live in the job's events.
    */
   offeredProviderId?: string;
+  /** When the current offer lapses. Only set while OFFERED. */
+  offerExpiresAt?: string;
+  /** Live estimate while the provider is EN_ROUTE. */
+  etaMinutes?: number;
 
   requestType: RequestType;
   categoryId: string;
@@ -59,10 +64,59 @@ export type Job = {
   urgency: Urgency;
   scheduledFor?: ScheduledFor;
 
+  /** The latest quote, whatever its status. */
+  quoteId?: string;
+  /** What the provider says they did, given when marking the work complete. */
+  workSummary?: string;
+  /** What the customer owes. Set when the job reaches PAYMENT_PENDING. */
+  amountDue?: Cents;
+  /** FULL: the approved quote. INSPECTION_ONLY: the quote was rejected. */
+  chargeType?: 'FULL' | 'INSPECTION_ONLY';
+  /** Set when the job reaches PAID. */
+  payment?: JobPaymentSummary;
+  cancellation?: JobCancellation;
+  dispute?: JobDispute;
+  rating?: JobRating;
+
   status: JobStatus;
   /** ISO 8601 timestamps, the way an API sends them. */
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
+};
+
+export type CancellationReason =
+  | 'customer_cancelled'
+  | 'provider_cancelled'
+  | 'no_provider_available'
+  | 'quote_rejected'
+  | 'dispute_resolved';
+
+export type JobCancellation = {
+  by: JobActor;
+  reason: CancellationReason;
+  /** Free text, e.g. why the provider had to cancel. */
+  note?: string;
+};
+
+export type JobDispute = {
+  reason: string;
+  /** Filled in by support once they've reviewed it. */
+  resolution?: string;
+};
+
+export type JobPaymentSummary = {
+  paymentId: string;
+  amount: Cents;
+  receiptNumber: string;
+  paidAt: string;
+};
+
+export type JobRating = {
+  /** 1 to 5 */
+  stars: number;
+  comment: string;
+  createdAt: string;
 };
 
 /**

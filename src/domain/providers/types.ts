@@ -7,5 +7,9 @@ export type Provider = {
   type: ProviderType;
   specialty: string;
   rating: number;
+  ratingCount: number;
   distanceKm: number;
+  phone: string;
+  /** Only online providers are offered jobs. */
+  online: boolean;
 };

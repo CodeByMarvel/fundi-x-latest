@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { isTerminalStatus } from '../domain/jobs/transitions';
 import { Job } from '../domain/jobs/types';
-import { jobRepository } from './jobRepository';
+import { jobRepository, paymentService, providerRepository } from './backend';
 
 /**
  * Re-renders the component whenever the picked job changes. `pick` must
@@ -24,6 +24,14 @@ export function useJob(jobId: string) {
   );
 }
 
+/** Every job, oldest first. */
+export function useJobs() {
+  return useSyncExternalStore(
+    jobRepository.subscribe,
+    jobRepository.getJobsSnapshot,
+  );
+}
+
 /**
  * The customer's newest unfinished job, if they have one. A real backend only
  * returns the signed-in customer's own jobs, so no filtering by customer here.
@@ -31,6 +39,13 @@ export function useJob(jobId: string) {
 export function useActiveJob() {
   return useJobFromList(jobs =>
     [...jobs].reverse().find(job => !isTerminalStatus(job.status)),
+  );
+}
+
+/** The customer's newest completed job, for "Recent service". */
+export function useLatestCompletedJob() {
+  return useJobFromList(jobs =>
+    [...jobs].reverse().find(job => job.status === 'COMPLETED'),
   );
 }
 
@@ -49,5 +64,46 @@ export function useProviderCurrentJob(providerId: string) {
     jobs.find(
       job => job.providerId === providerId && !isTerminalStatus(job.status),
     ),
+  );
+}
+
+/**
+ * Every job this provider took, newest first. Filtering makes a new array,
+ * which must not happen inside the store snapshot (React would see a "new"
+ * value on every check and loop), so it's done afterwards with useMemo.
+ */
+export function useProviderJobs(providerId: string) {
+  const jobs = useJobs();
+  return useMemo(
+    () => [...jobs].reverse().filter(job => job.providerId === providerId),
+    [jobs, providerId],
+  );
+}
+
+export function useQuote(quoteId: string | undefined) {
+  return useSyncExternalStore(jobRepository.subscribe, () =>
+    quoteId ? jobRepository.getQuoteSnapshot(quoteId) : undefined,
+  );
+}
+
+/** The most recent payment attempt for a job. */
+export function useLatestPayment(jobId: string) {
+  return useSyncExternalStore(paymentService.subscribe, () =>
+    [...paymentService.getPaymentsSnapshot()]
+      .reverse()
+      .find(payment => payment.jobId === jobId),
+  );
+}
+
+export function useProvider(providerId: string | undefined) {
+  return useSyncExternalStore(providerRepository.subscribe, () =>
+    providerId ? providerRepository.getProviderSnapshot(providerId) : undefined,
+  );
+}
+
+export function useProviders() {
+  return useSyncExternalStore(
+    providerRepository.subscribe,
+    providerRepository.getProvidersSnapshot,
   );
 }

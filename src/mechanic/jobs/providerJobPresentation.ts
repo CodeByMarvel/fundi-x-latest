@@ -1,33 +1,127 @@
-import { Job, JobStatus } from '../../domain/jobs/types';
+import { CancellationReason, Job, JobStatus } from '../../domain/jobs/types';
 import { getCategory } from '../../customer/request/data/categories';
 import { QUESTIONS } from '../../customer/request/data/questions';
 import { Drivability, Urgency } from '../../customer/request/types';
 import { formatDay } from '../../customer/request/steps/UrgencyStep';
+import type { PillTone } from '../../shared/components/StatusPill';
 import { colors } from '../../shared/theme/colors';
+
+export type ProviderStatusView = {
+  title: string;
+  /** What the provider should do next, or what they're waiting for. */
+  hint: string;
+  tone: PillTone;
+};
 
 /**
  * What the provider reads for each job status. The same statuses the
  * customer sees, worded for the person doing the work.
  */
-const PROVIDER_STATUS: Record<JobStatus, string> = {
-  SEARCHING: 'Looking for a provider',
-  OFFERED: 'New job request',
-  ACCEPTED: 'Accepted · head out when ready',
-  EN_ROUTE: 'On your way to the customer',
-  ARRIVED: 'At the vehicle',
-  DIAGNOSING: 'Inspecting the vehicle',
-  QUOTE_SENT: 'Waiting for the customer to approve your quote',
-  IN_PROGRESS: 'Work in progress',
-  AWAITING_CONFIRMATION: 'Waiting for the customer to confirm',
-  PAYMENT_PENDING: 'Waiting for payment',
-  PAID: 'Payment received',
-  COMPLETED: 'Job completed',
-  CANCELLED: 'Job cancelled',
-  DISPUTED: 'Customer raised an issue',
+const PROVIDER_STATUS: Record<JobStatus, ProviderStatusView> = {
+  SEARCHING: {
+    title: 'Back to searching',
+    hint: 'This job is being offered to other fundis.',
+    tone: 'stopped',
+  },
+  OFFERED: {
+    title: 'New job request',
+    hint: 'Accept it before the offer runs out.',
+    tone: 'active',
+  },
+  ACCEPTED: {
+    title: 'Job accepted',
+    hint: "Tap “I'm on my way” when you set off.",
+    tone: 'active',
+  },
+  EN_ROUTE: {
+    title: 'On your way',
+    hint: 'The customer can see you are coming.',
+    tone: 'active',
+  },
+  ARRIVED: {
+    title: 'At the vehicle',
+    hint: 'Start the inspection when you begin looking at the car.',
+    tone: 'active',
+  },
+  DIAGNOSING: {
+    title: 'Inspecting the vehicle',
+    hint: 'Send a quote once you know what needs doing.',
+    tone: 'active',
+  },
+  QUOTE_SENT: {
+    title: 'Quote sent',
+    hint: 'Waiting for the customer to approve it. Don’t start work yet.',
+    tone: 'warning',
+  },
+  IN_PROGRESS: {
+    title: 'Work in progress',
+    hint: 'Mark the work complete when you’re done.',
+    tone: 'active',
+  },
+  AWAITING_CONFIRMATION: {
+    title: 'Waiting for the customer',
+    hint: 'They’re checking the work before paying.',
+    tone: 'warning',
+  },
+  PAYMENT_PENDING: {
+    title: 'Waiting for payment',
+    hint: 'The customer is paying with M-Pesa.',
+    tone: 'warning',
+  },
+  PAID: {
+    title: 'Payment received',
+    hint: 'Your earnings are on the way.',
+    tone: 'success',
+  },
+  COMPLETED: {
+    title: 'Job completed',
+    hint: 'Nice work!',
+    tone: 'success',
+  },
+  CANCELLED: {
+    title: 'Job cancelled',
+    hint: 'Nothing more to do on this job.',
+    tone: 'stopped',
+  },
+  DISPUTED: {
+    title: 'Customer reported a problem',
+    hint: 'Fundi-X support is reviewing it and will contact you.',
+    tone: 'warning',
+  },
 };
 
-export function providerStatusText(status: JobStatus): string {
-  return PROVIDER_STATUS[status];
+const CANCELLED_BY: Record<CancellationReason, string> = {
+  customer_cancelled: 'The customer cancelled this job.',
+  provider_cancelled: 'You cancelled this job.',
+  no_provider_available: 'No fundi was available.',
+  quote_rejected: 'The customer declined your quote.',
+  dispute_resolved: 'Support closed this job after a dispute.',
+};
+
+/** The status view, adjusted for what else we know about the job. */
+export function providerJobView(job: Job): ProviderStatusView {
+  const base = PROVIDER_STATUS[job.status];
+  if (job.status === 'CANCELLED' && job.cancellation) {
+    return { ...base, hint: CANCELLED_BY[job.cancellation.reason] };
+  }
+  if (
+    job.status === 'PAYMENT_PENDING' &&
+    job.chargeType === 'INSPECTION_ONLY'
+  ) {
+    return {
+      ...base,
+      title: 'Quote declined',
+      hint: 'The customer is paying the call-out and inspection fee only.',
+    };
+  }
+  if (job.status === 'IN_PROGRESS' && job.dispute?.resolution) {
+    return {
+      ...base,
+      title: 'Fix the reported problem',
+      hint: `Support asked you to sort out: “${job.dispute.reason}”`,
+    };
+  }
+  return base;
 }
 
 const DRIVABILITY: Record<Drivability, { label: string; color: string }> = {

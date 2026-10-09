@@ -3,7 +3,13 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Building2, Wrench } from 'lucide-react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useActiveJob } from '../../data/useJob';
+import {
+  useActiveJob,
+  useLatestCompletedJob,
+  useProviders,
+} from '../../data/useJob';
+import { formatKes } from '../../domain/money';
+import { formatDate } from '../../shared/format';
 import { SectionTitle } from '../../shared/components/SectionTitle';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
@@ -14,14 +20,16 @@ import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { ProviderCard } from '../components/home/ProviderCard';
 import { ProviderTypeCard } from '../components/home/ProviderTypeCard';
 import { RecentServiceCard } from '../components/home/RecentServiceCard';
-import { customer, nearbyProviders, recentService } from '../data/mockHome';
+import { customer } from '../data/mockHome';
 import { vehicleName } from '../data/mockVehicles';
-import { customerStatusView, jobProgress } from '../jobs/jobPresentation';
+import { customerJobView, jobProgress } from '../jobs/jobPresentation';
 import { getCategory } from '../request/data/categories';
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const activeJob = useActiveJob();
+  const recentJob = useLatestCompletedJob();
+  const providers = useProviders();
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
     useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
@@ -47,7 +55,7 @@ export function HomeScreen() {
           <ActiveJobCard
             car={vehicleName(activeJob.vehicle)}
             service={getCategory(activeJob.categoryId)?.label ?? ''}
-            status={customerStatusView(activeJob.status).short}
+            status={customerJobView(activeJob).short}
             progress={jobProgress(activeJob.status)}
             onViewJob={() =>
               navigation.navigate('JobTracking', { jobId: activeJob.id })
@@ -59,8 +67,16 @@ export function HomeScreen() {
       <View style={styles.section}>
         <SectionTitle>Find a provider</SectionTitle>
         <View style={styles.row}>
-          <ProviderTypeCard label="Mechanic" Icon={Wrench} />
-          <ProviderTypeCard label="Garage" Icon={Building2} />
+          <ProviderTypeCard
+            label="Mechanic"
+            Icon={Wrench}
+            onPress={() => navigation.navigate('RequestFlow')}
+          />
+          <ProviderTypeCard
+            label="Garage"
+            Icon={Building2}
+            onPress={() => navigation.navigate('RequestFlow')}
+          />
         </View>
       </View>
 
@@ -72,16 +88,29 @@ export function HomeScreen() {
           style={styles.bleed}
           contentContainerStyle={styles.providerList}
         >
-          {nearbyProviders.map(provider => (
+          {providers.map(provider => (
             <ProviderCard key={provider.id} provider={provider} />
           ))}
         </ScrollView>
       </View>
 
-      {recentService && (
+      {recentJob && (
         <View style={styles.section}>
           <SectionTitle>Recent service</SectionTitle>
-          <RecentServiceCard service={recentService} />
+          <RecentServiceCard
+            service={{
+              id: recentJob.id,
+              car: vehicleName(recentJob.vehicle),
+              service: getCategory(recentJob.categoryId)?.label ?? '',
+              date: formatDate(recentJob.completedAt ?? recentJob.updatedAt),
+              price: recentJob.payment
+                ? formatKes(recentJob.payment.amount)
+                : '',
+            }}
+            onPress={() =>
+              navigation.navigate('JobTracking', { jobId: recentJob.id })
+            }
+          />
         </View>
       )}
     </ScrollView>

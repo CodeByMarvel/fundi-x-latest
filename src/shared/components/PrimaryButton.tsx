@@ -1,36 +1,57 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import { colors } from '../theme/colors';
 
 type Props = {
   label: string;
   onPress: () => void;
   disabled?: boolean;
-  /** `ghost` is a quieter text-only button, e.g. for "Skip". */
-  variant?: 'primary' | 'ghost';
+  /** Shows a spinner instead of the label, and blocks presses. */
+  loading?: boolean;
+  /**
+   * `outline` is for the second choice next to a primary one (e.g. Reject).
+   * `ghost` is a quieter text-only button, e.g. for "Skip".
+   */
+  variant?: 'primary' | 'outline' | 'ghost';
 };
 
 export function PrimaryButton({
   label,
   onPress,
   disabled = false,
+  loading = false,
   variant = 'primary',
 }: Props) {
-  const ghost = variant === 'ghost';
+  const primary = variant === 'primary';
+  const blocked = disabled || loading;
 
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={blocked}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled: blocked, busy: loading }}
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.button,
-        ghost ? styles.ghost : styles.primary,
-        pressed && !ghost && styles.primaryPressed,
+        styles[variant],
+        pressed && primary && styles.primaryPressed,
+        pressed && !primary && styles.quietPressed,
         disabled && styles.disabled,
       ]}
     >
-      <Text style={[styles.label, ghost && styles.ghostLabel]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator color={primary ? colors.surface : colors.primary} />
+      ) : (
+        <Text
+          style={[
+            styles.label,
+            variant === 'outline' && styles.outlineLabel,
+            variant === 'ghost' && styles.ghostLabel,
+          ]}
+        >
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -48,8 +69,16 @@ const styles = StyleSheet.create({
   primaryPressed: {
     backgroundColor: colors.primaryLight,
   },
+  outline: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.divider,
+  },
   ghost: {
     backgroundColor: 'transparent',
+  },
+  quietPressed: {
+    backgroundColor: colors.background,
   },
   disabled: {
     opacity: 0.4,
@@ -58,6 +87,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: colors.surface,
+  },
+  outlineLabel: {
+    color: colors.textDark,
   },
   ghostLabel: {
     color: colors.textGrey,

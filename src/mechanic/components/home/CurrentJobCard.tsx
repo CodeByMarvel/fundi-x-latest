@@ -1,15 +1,23 @@
-import { MapPin, Wrench } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { ChevronRight, MapPin, Wrench } from 'lucide-react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { vehicleName } from '../../../customer/data/mockVehicles';
 import { getCategory } from '../../../customer/request/data/categories';
 import { Job } from '../../../domain/jobs/types';
 import { colors } from '../../../shared/theme/colors';
-import { providerStatusText } from '../../jobs/providerJobPresentation';
+import { providerJobView } from '../../jobs/providerJobPresentation';
 
 /** The job the provider is working on right now. */
-export function CurrentJobCard({ job }: { job: Job }) {
+export function CurrentJobCard({
+  job,
+  onPress,
+}: {
+  job: Job;
+  onPress: () => void;
+}) {
+  const view = providerJobView(job);
+
   return (
-    <View style={styles.card}>
+    <Pressable style={styles.card} onPress={onPress} accessibilityRole="button">
       <View style={styles.row}>
         <View style={styles.iconWrap}>
           <Wrench color={colors.primary} size={20} />
@@ -22,15 +30,19 @@ export function CurrentJobCard({ job }: { job: Job }) {
             {vehicleName(job.vehicle)} · {job.vehicle.registration}
           </Text>
         </View>
+        <ChevronRight color={colors.textLight} size={20} />
       </View>
-      <Text style={styles.status}>{providerStatusText(job.status)}</Text>
+      <View>
+        <Text style={styles.status}>{view.title}</Text>
+        <Text style={styles.hint}>{view.hint}</Text>
+      </View>
       <View style={styles.location}>
         <MapPin color={colors.textGrey} size={14} />
         <Text style={styles.address} numberOfLines={1}>
           {job.location.address}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -70,9 +82,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   status: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: colors.primary,
+  },
+  hint: {
+    fontSize: 13,
+    color: colors.textGrey,
+    marginTop: 2,
   },
   location: {
     flexDirection: 'row',

@@ -44,6 +44,9 @@ export const TRANSITIONS: TransitionTable = {
     // Provider withdraws the quote to revise it. While the job is back in
     // DIAGNOSING, the old quote can't be approved.
     DIAGNOSING: ['PROVIDER'],
+    // Customer rejects a quote that carries no call-out/inspection fee, so
+    // there's nothing to pay.
+    CANCELLED: ['CUSTOMER'],
   },
   IN_PROGRESS: {
     AWAITING_CONFIRMATION: ['PROVIDER'],
@@ -62,8 +65,12 @@ export const TRANSITIONS: TransitionTable = {
   },
   COMPLETED: {},
   CANCELLED: {},
-  // Resolved by support later; nothing in the app moves it on yet.
-  DISPUTED: {},
+  // Fundi-X support reviews the dispute: either the fundi goes back to fix
+  // the problem, or the job is closed without charge.
+  DISPUTED: {
+    IN_PROGRESS: ['SYSTEM'],
+    CANCELLED: ['SYSTEM'],
+  },
 };
 
 export class JobTransitionError extends Error {

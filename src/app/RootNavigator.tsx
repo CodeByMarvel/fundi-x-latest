@@ -1,5 +1,5 @@
 import { CustomerNavigator } from '../customer/navigation/CustomerNavigator';
-import { MechanicTabs } from '../mechanic/navigation/MechanicTabs';
+import { MechanicNavigator } from '../mechanic/navigation/MechanicNavigator';
 import { useRole } from './RoleContext';
 
 /**
@@ -7,5 +7,5 @@ import { useRole } from './RoleContext';
  */
 export function RootNavigator() {
   const { role } = useRole();
-  return role === 'mechanic' ? <MechanicTabs /> : <CustomerNavigator />;
+  return role === 'mechanic' ? <MechanicNavigator /> : <CustomerNavigator />;
 }

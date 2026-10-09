@@ -9,6 +9,7 @@ import {
 import { vehicleName } from '../../../customer/data/mockVehicles';
 import { getCategory } from '../../../customer/request/data/categories';
 import { Job } from '../../../domain/jobs/types';
+import { useNow } from '../../../shared/hooks/useNow';
 import { colors } from '../../../shared/theme/colors';
 import {
   drivabilityView,
@@ -36,6 +37,10 @@ export function JobOfferCard({
   const symptoms = symptomLabels(job);
   const drivability = drivabilityView(job.drivability);
   const busy = responding !== null;
+  const now = useNow();
+  const secondsLeft = job.offerExpiresAt
+    ? Math.max(0, Math.ceil((Date.parse(job.offerExpiresAt) - now) / 1000))
+    : undefined;
 
   return (
     <View style={styles.card}>
@@ -48,6 +53,12 @@ export function JobOfferCard({
           <Text style={styles.meta}>{urgencyText(job.urgency, job)}</Text>
         </View>
       </View>
+
+      {secondsLeft !== undefined && (
+        <Text style={[styles.countdown, secondsLeft <= 10 && styles.urgent]}>
+          Respond within {secondsLeft}s
+        </Text>
+      )}
 
       <Text style={styles.category}>{getCategory(job.categoryId)?.label}</Text>
       <Text style={styles.vehicle}>
@@ -150,6 +161,15 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 13,
     color: colors.textGrey,
+  },
+  countdown: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textGrey,
+    marginBottom: 6,
+  },
+  urgent: {
+    color: colors.error,
   },
   category: {
     fontSize: 18,

@@ -1,58 +1,47 @@
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { BadgeCheck, Inbox, Star, Wallet } from 'lucide-react-native';
-import { useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { jobRepository } from '../../data/jobRepository';
-import { useOfferForProvider, useProviderCurrentJob } from '../../data/useJob';
+import { jobRepository } from '../../data/backend';
+import {
+  useOfferForProvider,
+  useProvider,
+  useProviderCurrentJob,
+  useProviderJobs,
+} from '../../data/useJob';
 import { formatKes } from '../../domain/money';
 import { HomeHeader } from '../../shared/components/HomeHeader';
 import { SectionTitle } from '../../shared/components/SectionTitle';
+import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { CurrentJobCard } from '../components/home/CurrentJobCard';
 import { JobOfferCard } from '../components/home/JobOfferCard';
 import { StatTile } from '../components/home/StatTile';
-import {
-  CURRENT_PROVIDER_ID,
-  currentProvider,
-  mechanicProfile,
-  todayStats,
-} from '../data/mockMechanic';
+import { OnlineToggle } from '../components/OnlineToggle';
+import { CURRENT_PROVIDER_ID, mechanicProfile } from '../data/mockMechanic';
+import { earningsFrom, isToday, sumPayouts } from '../earnings';
+import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
-type Response = 'accept' | 'decline';
+const me = CURRENT_PROVIDER_ID;
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
-  const offer = useOfferForProvider(CURRENT_PROVIDER_ID);
-  const currentJob = useProviderCurrentJob(CURRENT_PROVIDER_ID);
-  const [responding, setResponding] = useState<Response | null>(null);
-  // Blocks a second tap before the re-render that disables the buttons.
-  const respondingRef = useRef(false);
+  const navigation =
+    useNavigation<NativeStackNavigationProp<MechanicStackParamList>>();
+  const provider = useProvider(me);
+  const offer = useOfferForProvider(me);
+  const currentJob = useProviderCurrentJob(me);
+  const myJobs = useProviderJobs(me);
+  const { pending, run } = useAsyncAction<'accept' | 'decline'>();
 
-  const respond = async (response: Response) => {
-    if (!offer || respondingRef.current) {
-      return;
-    }
-    respondingRef.current = true;
-    setResponding(response);
-
-    try {
-      if (response === 'accept') {
-        await jobRepository.acceptOffer(offer.id, CURRENT_PROVIDER_ID);
-      } else {
-        await jobRepository.declineOffer(offer.id, CURRENT_PROVIDER_ID);
-      }
-    } catch {
-      Alert.alert(
-        'This request is no longer available',
-        'The customer may have cancelled it.',
-      );
-    } finally {
-      respondingRef.current = false;
-      setResponding(null);
-    }
-  };
+  const today = useMemo(() => {
+    const earnings = earningsFrom(myJobs).filter(e => isToday(e.paidAt));
+    return { payout: sumPayouts(earnings), jobs: earnings.length };
+  }, [myJobs]);
 
   return (
     <ScrollView
@@ -68,51 +57,71 @@ export function HomeScreen() {
         location={mechanicProfile.location}
       />
 
+      <View style={styles.section}>
+        <OnlineToggle providerId={me} />
+      </View>
+
       <View style={[styles.section, styles.stats]}>
         <StatTile
           Icon={Wallet}
           label="Earned today"
-          value={formatKes(todayStats.earnings)}
+          value={formatKes(today.payout)}
         />
         <StatTile
           Icon={BadgeCheck}
-          label="Jobs today"
-          value={String(todayStats.jobsCompleted)}
+          label="Paid jobs today"
+          value={String(today.jobs)}
         />
         <StatTile
           Icon={Star}
           label="Rating"
-          value={currentProvider.rating.toFixed(1)}
+          value={provider ? provider.rating.toFixed(1) : '–'}
         />
       </View>
+
+      {currentJob && (
+        <View style={styles.section}>
+          <SectionTitle>Current job</SectionTitle>
+          <CurrentJobCard
+            job={currentJob}
+            onPress={() =>
+              navigation.navigate('MechanicJob', { jobId: currentJob.id })
+            }
+          />
+        </View>
+      )}
 
       <View style={styles.section}>
         <SectionTitle>New requests</SectionTitle>
         {offer ? (
           <JobOfferCard
             job={offer}
-            distanceKm={currentProvider.distanceKm}
-            responding={responding}
-            onAccept={() => respond('accept')}
-            onDecline={() => respond('decline')}
+            distanceKm={provider?.distanceKm ?? 0}
+            responding={pending}
+            onAccept={() =>
+              run('accept', async () => {
+                await jobRepository.acceptOffer(offer.id, me);
+                navigation.navigate('MechanicJob', { jobId: offer.id });
+              })
+            }
+            onDecline={() =>
+              run('decline', () => jobRepository.declineOffer(offer.id, me))
+            }
           />
         ) : (
           <View style={styles.empty}>
             <Inbox color={colors.textLight} size={28} />
             <Text style={styles.emptyTitle}>No new requests</Text>
             <Text style={styles.emptyText}>
-              Jobs near you will show up here as soon as customers ask for help.
+              {!provider?.online
+                ? 'Go online to start receiving jobs.'
+                : currentJob
+                ? "You'll get new requests once you finish your current job."
+                : 'Jobs near you will show up here as soon as customers ask for help.'}
             </Text>
           </View>
         )}
       </View>
-
-      {currentJob && (
-        <View style={styles.section}>
-          <SectionTitle>Current job</SectionTitle>
-          <CurrentJobCard job={currentJob} />
-        </View>
-      )}
     </ScrollView>
   );
 }

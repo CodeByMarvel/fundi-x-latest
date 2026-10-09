@@ -1,40 +1,57 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Check, ChevronLeft, Wrench, X } from 'lucide-react-native';
-import { ReactNode, useState } from 'react';
+import { Check, CircleAlert, Wrench, X } from 'lucide-react-native';
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { jobRepository } from '../../data/jobRepository';
+import { jobRepository } from '../../data/backend';
 import { useJob } from '../../data/useJob';
-import {
-  canTransition,
-  JobTransitionError,
-} from '../../domain/jobs/transitions';
-import { Job } from '../../domain/jobs/types';
+import { canTransition } from '../../domain/jobs/transitions';
+import { Job, JobStatus } from '../../domain/jobs/types';
+import { MapPlaceholder } from '../../shared/components/MapPlaceholder';
 import { PrimaryButton } from '../../shared/components/PrimaryButton';
+import { ScreenHeader } from '../../shared/components/ScreenHeader';
+import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
 import { colors } from '../../shared/theme/colors';
-import { vehicleName } from '../data/mockVehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
-import { getCategory } from '../request/data/categories';
-import { customerStatusView, jobProgress } from './jobPresentation';
+import { customerJobView, jobProgress } from './jobPresentation';
+import { CancelledPanel, DisputePanel } from './panels/ClosedPanels';
+import { CompletionPanel } from './panels/CompletionPanel';
+import { JobDetailsCard } from './panels/JobDetailsCard';
+import { PaymentPanel } from './panels/PaymentPanel';
+import { ProviderPanel } from './panels/ProviderPanel';
+import { ApprovedWorkPanel, QuoteReviewPanel } from './panels/QuotePanels';
+import { RatingPanel, ReceiptPanel } from './panels/ReceiptPanel';
 
 type Props = NativeStackScreenProps<CustomerStackParamList, 'JobTracking'>;
 
+/** Statuses where the provider's card is worth showing. */
+const SHOW_PROVIDER: JobStatus[] = [
+  'ACCEPTED',
+  'EN_ROUTE',
+  'ARRIVED',
+  'DIAGNOSING',
+  'QUOTE_SENT',
+  'IN_PROGRESS',
+  'AWAITING_CONFIRMATION',
+  'PAYMENT_PENDING',
+  'DISPUTED',
+];
+
 /**
  * One screen for the whole life of a job. It never decides what state the
- * job is in; it shows whatever the repository says and re-renders on change.
+ * job is in: it shows whatever the backend says and re-renders on change,
+ * picking the panel that fits the current status.
  */
 export function JobTrackingScreen({ navigation, route }: Props) {
   const { top, bottom } = useSafeAreaInsets();
   const job = useJob(route.params.jobId);
-  const [cancelling, setCancelling] = useState(false);
+  const { pending, run } = useAsyncAction<'cancel'>();
 
   if (!job) {
     return (
@@ -45,47 +62,34 @@ export function JobTrackingScreen({ navigation, route }: Props) {
     );
   }
 
-  const view = customerStatusView(job.status);
+  const view = customerJobView(job);
+  // The rulebook decides whether cancelling is allowed, not this screen.
   const canCancel = canTransition(job.status, 'CANCELLED', 'CUSTOMER');
 
-  const cancel = async () => {
-    setCancelling(true);
-    try {
-      await jobRepository.cancelJob(job.id);
-    } catch (error) {
-      Alert.alert(
-        "Couldn't cancel",
-        error instanceof JobTransitionError
-          ? 'Your job has already moved on and can no longer be cancelled here.'
-          : 'Please try again.',
-      );
-    } finally {
-      setCancelling(false);
-    }
-  };
-
   const confirmCancel = () =>
-    Alert.alert('Cancel this request?', "We'll stop looking for a fundi.", [
-      { text: 'Keep request', style: 'cancel' },
-      { text: 'Cancel request', style: 'destructive', onPress: cancel },
-    ]);
+    Alert.alert(
+      'Cancel this request?',
+      job.status === 'SEARCHING' || job.status === 'OFFERED'
+        ? "We'll stop looking for a fundi."
+        : 'Your fundi is already on the job. Please only cancel if you really need to.',
+      [
+        { text: 'Keep request', style: 'cancel' },
+        {
+          text: 'Cancel request',
+          style: 'destructive',
+          onPress: () => run('cancel', () => jobRepository.cancelJob(job.id)),
+        },
+      ],
+    );
 
   return (
     <View style={[styles.screen, { paddingTop: top }]}>
-      <View style={styles.topBar}>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => navigation.goBack()}
-          accessibilityLabel="Back"
-          hitSlop={8}
-        >
-          <ChevronLeft color={colors.textDark} size={24} />
-        </Pressable>
-        <Text style={styles.topTitle}>Your job</Text>
-        <View style={styles.iconButton} />
-      </View>
+      <ScreenHeader title="Your job" onBack={() => navigation.goBack()} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottom + 24 }]}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.hero}>
           <StatusIcon job={job} />
           <Text style={styles.title}>{view.title}</Text>
@@ -103,76 +107,89 @@ export function JobTrackingScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        <View style={styles.card}>
-          <Detail label="Vehicle">
-            <Text style={styles.primary}>{vehicleName(job.vehicle)}</Text>
-            <Text style={styles.secondary}>{job.vehicle.registration}</Text>
-          </Detail>
-          <Detail label="Problem">
-            <Text style={styles.primary}>
-              {getCategory(job.categoryId)?.label}
-            </Text>
-            {!!job.description && (
-              <Text style={styles.secondary}>{job.description}</Text>
-            )}
-          </Detail>
-          <Detail label="Location">
-            <Text style={styles.primary}>{job.location.label}</Text>
-            <Text style={styles.secondary}>{job.location.address}</Text>
-          </Detail>
-        </View>
-      </ScrollView>
+        {job.status === 'EN_ROUTE' && (
+          <MapPlaceholder
+            address={job.location.address}
+            caption={
+              job.etaMinutes
+                ? `Arriving in about ${job.etaMinutes} min`
+                : undefined
+            }
+          />
+        )}
 
-      <View style={[styles.footer, { paddingBottom: bottom + 16 }]}>
+        {SHOW_PROVIDER.includes(job.status) && <ProviderPanel job={job} />}
+
+        <StagePanel job={job} />
+
+        <JobDetailsCard job={job} />
+
         {canCancel && (
           <PrimaryButton
             variant="ghost"
-            label={cancelling ? 'Cancelling…' : 'Cancel request'}
+            label="Cancel request"
             onPress={confirmCancel}
-            disabled={cancelling}
+            loading={pending === 'cancel'}
           />
         )}
-        {view.tone === 'stopped' && (
-          <PrimaryButton
-            label="Back to home"
-            onPress={() => navigation.popToTop()}
-          />
-        )}
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
+/** The part of the screen that changes most from stage to stage. */
+function StagePanel({ job }: { job: Job }) {
+  switch (job.status) {
+    case 'QUOTE_SENT':
+      return <QuoteReviewPanel job={job} />;
+    case 'IN_PROGRESS':
+      return <ApprovedWorkPanel job={job} />;
+    case 'AWAITING_CONFIRMATION':
+      return <CompletionPanel job={job} />;
+    case 'PAYMENT_PENDING':
+      return <PaymentPanel job={job} />;
+    case 'PAID':
+      return <ReceiptPanel job={job} />;
+    case 'COMPLETED':
+      return (
+        <>
+          <RatingPanel job={job} />
+          <ReceiptPanel job={job} />
+        </>
+      );
+    case 'CANCELLED':
+      return <CancelledPanel job={job} />;
+    case 'DISPUTED':
+      return <DisputePanel job={job} />;
+    default:
+      return null;
+  }
+}
+
 function StatusIcon({ job }: { job: Job }) {
-  const view = customerStatusView(job.status);
+  const { tone } = customerJobView(job);
   const searching = job.status === 'SEARCHING' || job.status === 'OFFERED';
 
   return (
     <View
       style={[
         styles.icon,
-        view.tone === 'success' && styles.iconSuccess,
-        view.tone === 'stopped' && styles.iconStopped,
+        tone === 'success' && styles.iconSuccess,
+        tone === 'stopped' && styles.iconStopped,
+        tone === 'warning' && styles.iconWarning,
       ]}
     >
       {searching ? (
         <ActivityIndicator color={colors.primary} size="large" />
-      ) : view.tone === 'success' ? (
+      ) : tone === 'success' ? (
         <Check color={colors.surface} size={36} strokeWidth={3} />
-      ) : view.tone === 'stopped' ? (
+      ) : tone === 'stopped' ? (
         <X color={colors.surface} size={36} strokeWidth={3} />
+      ) : tone === 'warning' ? (
+        <CircleAlert color={colors.surface} size={36} />
       ) : (
         <Wrench color={colors.primary} size={32} />
       )}
-    </View>
-  );
-}
-
-function Detail({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View style={styles.detail}>
-      <Text style={styles.label}>{label}</Text>
-      {children}
     </View>
   );
 }
@@ -188,31 +205,14 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 20,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textGrey,
-  },
   content: {
     padding: 20,
-    gap: 24,
+    gap: 16,
   },
   hero: {
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 4,
   },
   icon: {
     width: 88,
@@ -229,6 +229,9 @@ const styles = StyleSheet.create({
   iconStopped: {
     backgroundColor: colors.inactive,
   },
+  iconWarning: {
+    backgroundColor: colors.warning,
+  },
   title: {
     fontSize: 22,
     fontWeight: '700',
@@ -240,7 +243,7 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
     color: colors.textGrey,
-    maxWidth: 300,
+    maxWidth: 320,
   },
   track: {
     height: 4,
@@ -251,37 +254,5 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.primary,
-  },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.divider,
-    gap: 16,
-  },
-  detail: {
-    gap: 2,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: colors.textGrey,
-    marginBottom: 2,
-  },
-  primary: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.textDark,
-  },
-  secondary: {
-    fontSize: 14,
-    color: colors.textGrey,
-  },
-  footer: {
-    paddingHorizontal: 20,
-    gap: 8,
   },
 });

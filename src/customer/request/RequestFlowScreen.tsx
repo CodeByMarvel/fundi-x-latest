@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { jobRepository } from '../../data/jobRepository';
+import { jobRepository } from '../../data/backend';
 import { colors } from '../../shared/theme/colors';
 import { mockVehicles } from '../data/mockVehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
@@ -38,10 +38,17 @@ import { EMPTY_DRAFT, RequestDraft, Vehicle } from './types';
 
 type Props = NativeStackScreenProps<CustomerStackParamList, 'RequestFlow'>;
 
-export function RequestFlowScreen({ navigation }: Props) {
+export function RequestFlowScreen({ navigation, route }: Props) {
   const { top } = useSafeAreaInsets();
-  const [draft, setDraft] = useState<RequestDraft>(EMPTY_DRAFT);
-  const [history, setHistory] = useState<StepKey[]>(['need']);
+  const preset = route.params;
+  // Arriving with a category chosen skips "what do you need?"; the category
+  // step still shows later so it can be changed.
+  const [draft, setDraft] = useState<RequestDraft>(() =>
+    preset ? applyChange(EMPTY_DRAFT, preset) : EMPTY_DRAFT,
+  );
+  const [history, setHistory] = useState<StepKey[]>(
+    preset ? ['vehicle'] : ['need'],
+  );
   const [editingFromReview, setEditingFromReview] = useState(false);
   // TODO: load from and save to the customer's garage on the backend.
   const [vehicles, setVehicles] = useState<Vehicle[]>(mockVehicles);
