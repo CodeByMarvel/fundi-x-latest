@@ -1,4 +1,5 @@
 import { Cents, kes } from '../money';
+import { isKnownCode, serviceCode } from './serviceCodes';
 import { Quote, QuoteItem, QuoteItemInput, QuoteItemKind } from './types';
 
 export const QUOTE_ITEM_KINDS: { kind: QuoteItemKind; label: string }[] = [
@@ -47,6 +48,11 @@ export function validateQuoteItems(items: QuoteItemInput[]) {
     throw new QuoteValidationError('Add at least one item to the quote.');
   }
   for (const item of items) {
+    if (!isKnownCode(item.serviceCode)) {
+      throw new QuoteValidationError(
+        `Pick what "${item.description}" is from the list, or choose Other.`,
+      );
+    }
     if (!item.description.trim()) {
       throw new QuoteValidationError('Every item needs a description.');
     }
@@ -91,82 +97,39 @@ export function hasPendingAdditionalQuote(
   return additionalQuotes(quotes, jobId).some(q => q.status === 'PENDING');
 }
 
+/** A quote line from a service code, using the code's label as description. */
+export function line(
+  code: string,
+  shillings: number,
+  quantity = 1,
+): QuoteItemInput {
+  const known = serviceCode(code)!;
+  return {
+    serviceCode: code,
+    kind: known.kind,
+    description: known.label,
+    quantity,
+    unitPrice: kes(shillings),
+  };
+}
+
 /**
  * Typical repair quotes per category. Simulated providers send these, and
  * real providers can start from them in the quote builder.
  */
 const SAMPLE_ITEMS: Record<string, QuoteItemInput[]> = {
-  brakes: [
-    {
-      kind: 'PART',
-      description: 'Front brake pads',
-      quantity: 1,
-      unitPrice: kes(4500),
-    },
-    {
-      kind: 'LABOUR',
-      description: 'Replace pads and clean calipers',
-      quantity: 1,
-      unitPrice: kes(2000),
-    },
-  ],
-  engine: [
-    {
-      kind: 'PART',
-      description: 'Spark plugs',
-      quantity: 4,
-      unitPrice: kes(800),
-    },
-    {
-      kind: 'LABOUR',
-      description: 'Replace spark plugs and tune-up',
-      quantity: 1,
-      unitPrice: kes(2500),
-    },
-  ],
-  electrical: [
-    {
-      kind: 'PART',
-      description: 'Battery (70Ah)',
-      quantity: 1,
-      unitPrice: kes(12500),
-    },
-    {
-      kind: 'LABOUR',
-      description: 'Fit battery and clean terminals',
-      quantity: 1,
-      unitPrice: kes(1000),
-    },
-  ],
+  brakes: [line('BRAKE_PAD_FRONT', 4500), line('LABOUR_BRAKE_PADS', 2000)],
+  engine: [line('SPARK_PLUG', 800, 4), line('LABOUR_SPARK_PLUGS', 2500)],
+  electrical: [line('BATTERY', 12500), line('LABOUR_BATTERY', 1000)],
   suspension: [
-    {
-      kind: 'PART',
-      description: 'Front shock absorbers',
-      quantity: 2,
-      unitPrice: kes(6500),
-    },
-    {
-      kind: 'LABOUR',
-      description: 'Replace front shocks',
-      quantity: 1,
-      unitPrice: kes(3500),
-    },
+    line('SHOCK_ABSORBER_FRONT', 6500, 2),
+    line('LABOUR_SHOCKS', 3500),
   ],
 };
 
 const DEFAULT_ITEMS: QuoteItemInput[] = [
-  {
-    kind: 'PART',
-    description: 'Replacement part',
-    quantity: 1,
-    unitPrice: kes(3000),
-  },
-  {
-    kind: 'LABOUR',
-    description: 'Repair labour',
-    quantity: 2,
-    unitPrice: kes(1500),
-  },
+  line('LABOUR_DIAGNOSTICS', 1500),
+  line('LABOUR_GENERAL', 1500, 2),
 ];
 
 export function sampleQuoteItems(categoryId: string): QuoteItemInput[] {

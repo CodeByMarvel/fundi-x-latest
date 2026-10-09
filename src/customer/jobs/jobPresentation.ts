@@ -76,21 +76,22 @@ const CUSTOMER_STATUS: Record<JobStatus, CustomerStatusView> = {
     short: 'Work in progress',
     tone: 'active',
   },
-  AWAITING_CONFIRMATION: {
-    title: 'Your fundi has marked the job complete',
-    subtitle: 'Check the work and confirm everything is fine.',
-    short: 'Confirm the work',
+  SERVICE_PAYMENT_PENDING: {
+    title: 'Pay to start the work',
+    subtitle:
+      'Your money is held safely by Fundi-X and only released to your fundi once you confirm the work.',
+    short: 'Payment to start',
     tone: 'warning',
   },
-  PAYMENT_PENDING: {
-    title: 'Complete your payment',
-    subtitle: 'Pay the rest with M-Pesa to finish the job.',
-    short: 'Payment due',
+  AWAITING_CONFIRMATION: {
+    title: 'Your fundi has marked the job complete',
+    subtitle: 'Check the work. Confirming releases your payment to your fundi.',
+    short: 'Confirm the work',
     tone: 'warning',
   },
   COMPLETED: {
     title: 'Service completed',
-    subtitle: 'Thanks for using Fundi-X.',
+    subtitle: 'Payment released to your fundi. Thanks for using Fundi-X.',
     short: 'Completed',
     tone: 'success',
   },
@@ -140,9 +141,20 @@ const CANCELLATION_VIEW: Record<
     subtitle:
       'They waited 15 minutes at the location. The call-out covered their trip.',
   },
-  dispute_closed: {
-    title: 'Job closed by support',
-    subtitle: 'Fundi-X support closed this job after reviewing your report.',
+  provider_late: {
+    title: 'Your fundi was late',
+    subtitle:
+      'You cancelled after your fundi missed their arrival time. Your call-out is refunded in full.',
+  },
+  service_unpaid: {
+    title: 'Job closed: not paid in time',
+    subtitle:
+      'The agreed price wasn\u2019t paid within 30 minutes, so the work didn\u2019t start. The call-out covered your fundi\u2019s visit.',
+  },
+  dispute_resolved: {
+    title: 'Your report has been settled',
+    subtitle:
+      'Fundi-X support reviewed it and divided the payment. See below for your refund.',
   },
 };
 
@@ -180,11 +192,23 @@ export function customerJobView(job: Job): CustomerStatusView {
       short: 'Updating estimate',
     };
   }
-  if (job.status === 'IN_PROGRESS' && job.dispute?.resolution) {
+  if (
+    job.status === 'IN_PROGRESS' &&
+    job.dispute?.resolution?.outcome === 'REWORK'
+  ) {
     return {
       ...base,
       title: 'Your fundi is fixing the issue',
-      subtitle: job.dispute.resolution,
+      subtitle: job.dispute.resolution.note,
+    };
+  }
+  if (
+    job.status === 'COMPLETED' &&
+    job.dispute?.resolution?.outcome === 'UPHOLD_PROVIDER'
+  ) {
+    return {
+      ...base,
+      subtitle: `Fundi-X support reviewed your report: ${job.dispute.resolution.note}`,
     };
   }
   return base;
@@ -214,9 +238,9 @@ const HAPPY_PATH: JobStatus[] = [
   'ARRIVED',
   'DIAGNOSING',
   'QUOTE_SENT',
+  'SERVICE_PAYMENT_PENDING',
   'IN_PROGRESS',
   'AWAITING_CONFIRMATION',
-  'PAYMENT_PENDING',
   'COMPLETED',
 ];
 

@@ -27,7 +27,12 @@ export interface JobRepository {
    */
   createJob(input: CreateJobInput): Promise<Job>;
   cancelJob(jobId: string): Promise<Job>;
-  /** `quoteId` guards against approving a quote that has since been revised. */
+  /**
+   * Approves the main (BASE) quote; the job then waits for the price to be
+   * paid into escrow. `quoteId` guards against approving a quote that has
+   * since been revised. Additional quotes are approved by paying for them
+   * (BillingService.initiatePayment with a quoteId).
+   */
   approveQuote(jobId: string, quoteId: string): Promise<Job>;
   /**
    * Declining the main quote ends the job (the call-out paid for the visit).
@@ -51,8 +56,11 @@ export interface JobRepository {
   markArrived(jobId: string, providerId: string): Promise<Job>;
   /** QUOTED jobs: start diagnosing. */
   startInspection(jobId: string, providerId: string): Promise<Job>;
-  /** FIXED jobs: start the agreed work. */
-  startService(jobId: string, providerId: string): Promise<Job>;
+  /**
+   * FIXED jobs: the vehicle matches the booking, so ask the customer to pay
+   * the agreed price into escrow. Work starts once it's paid.
+   */
+  readyToStart(jobId: string, providerId: string): Promise<Job>;
   /** Ends the job after waiting 15 minutes at the location for the customer. */
   reportCustomerNoShow(jobId: string, providerId: string): Promise<Job>;
   /** QUOTED jobs: the main quote, after diagnosis. */

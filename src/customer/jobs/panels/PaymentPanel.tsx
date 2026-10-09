@@ -5,6 +5,7 @@ import { billingService } from '../../../data/backend';
 import { useJobLedger } from '../../../data/useJob';
 import { formatPhone, MoneyPurpose } from '../../../domain/billing/types';
 import { Job } from '../../../domain/jobs/types';
+import { Quote } from '../../../domain/quotes/types';
 import { formatKes } from '../../../domain/money';
 import { Card } from '../../../shared/components/Card';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
@@ -16,29 +17,35 @@ import { paymentFailureText } from '../jobPresentation';
 import { SimulatedPhonePrompt } from './SimulatedPhonePrompt';
 
 /**
- * Paying with M-Pesa: the call-out before dispatch, or the rest at the end.
- * The panel follows the latest attempt for the current purpose:
+ * Paying into escrow with M-Pesa: the call-out before dispatch, the agreed
+ * price before work starts, or (with `quote`) an extra-work quote, which is
+ * approved by paying for it.
+ *
+ * The panel follows the latest attempt for that money:
  * sending → waiting for PIN → processing → success, or failed with a retry.
  * When it succeeds, the backend moves the job on and this panel goes away.
  */
-export function PaymentPanel({ job }: { job: Job }) {
+export function PaymentPanel({ job, quote }: { job: Job; quote?: Quote }) {
   const ledger = useJobLedger(job.id);
   const [phone, setPhone] = useState(customer.mpesaPhone);
   const { pending, run } = useAsyncAction<'pay'>();
 
   const purpose: MoneyPurpose =
     job.status === 'CALL_OUT_PAYMENT_PENDING' ? 'CALL_OUT' : 'SERVICE';
-  const due = purpose === 'CALL_OUT' ? ledger.callOutDue : ledger.serviceDue;
-  const attempt =
-    ledger.latestPayment?.purpose === purpose
-      ? ledger.latestPayment
-      : undefined;
+  const due = quote
+    ? quote.total
+    : purpose === 'CALL_OUT'
+    ? ledger.callOutDue
+    : ledger.serviceDue;
+  const attempt = ledger.attempts.find(p =>
+    quote ? p.quoteId === quote.id : p.purpose === purpose && !p.quoteId,
+  );
   const inFlight =
     attempt?.status === 'PENDING' || attempt?.status === 'PROCESSING';
 
-  return (
-    <Card title={purpose === 'CALL_OUT' ? 'Call-out fee' : 'Payment'}>
-      {purpose === 'CALL_OUT' ? (
+  const content = (
+    <>
+      {quote ? null : purpose === 'CALL_OUT' ? (
         <CallOutSummary amount={due} />
       ) : (
         <ServiceSummary job={job} />
@@ -84,11 +91,24 @@ export function PaymentPanel({ job }: { job: Job }) {
                 : `Pay ${formatKes(due)} with M-Pesa`
             }
             onPress={() =>
-              run('pay', () => billingService.initiatePayment(job.id, phone))
+              run('pay', () =>
+                billingService.initiatePayment(job.id, phone, {
+                  quoteId: quote?.id,
+                }),
+              )
             }
           />
         </>
       )}
+    </>
+  );
+
+  // Inside an extra-work card there's no need for a second card.
+  return quote ? (
+    content
+  ) : (
+    <Card title={purpose === 'CALL_OUT' ? 'Call-out fee' : 'Pay to start'}>
+      {content}
     </Card>
   );
 }
@@ -131,7 +151,11 @@ function ServiceSummary({ job }: { job: Job }) {
         />
       )}
       <View style={styles.divider} />
-      <Row label="Still to pay" value={formatKes(ledger.serviceDue)} strong />
+      <Row label="To pay now" value={formatKes(ledger.serviceDue)} strong />
+      <Text style={styles.hint}>
+        Held safely by Fundi-X. Your fundi only receives it once you confirm the
+        work is done, and you can report a problem before then.
+      </Text>
     </>
   );
 }

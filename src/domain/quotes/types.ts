@@ -9,6 +9,8 @@ export type QuoteItemKind = 'PART' | 'LABOUR' | 'CONSUMABLE' | 'OTHER';
 
 export type QuoteItem = {
   id: string;
+  /** Standard name for the work or part (see serviceCodes.ts), or OTHER. */
+  serviceCode: string;
   kind: QuoteItemKind;
   description: string;
   quantity: number;
@@ -20,7 +22,7 @@ export type QuoteItem = {
 /** What gets filled in; ids and totals are worked out from it. */
 export type QuoteItemInput = Pick<
   QuoteItem,
-  'kind' | 'description' | 'quantity' | 'unitPrice'
+  'serviceCode' | 'kind' | 'description' | 'quantity' | 'unitPrice'
 >;
 
 /**

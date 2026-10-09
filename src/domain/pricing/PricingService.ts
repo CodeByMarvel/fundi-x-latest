@@ -7,7 +7,6 @@ export type PriceEstimate = {
   pricingMode: PricingMode;
   /** Transport and inspection, paid before dispatch. */
   callOut: Cents;
-  callOutBreakdown: { base: Cents; distance: Cents };
   /** FIXED pricing only: the Fundi-X price for the work. */
   fixedService?: {
     packageName: string;

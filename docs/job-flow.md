@@ -1,303 +1,465 @@
-# Fundi-X Job Flow
+# Fundi-X Job Flow & Financial Settlement Specification
 
-**Status:** contract v0.2 (2026-10-09). Items marked **OPEN** are undecided;
-everything else is decided and implemented in the mock backend
-(`src/data/mock/mockBackend.ts`).
+**Version 1.0 — 2026-10-09.** The source of truth for the mock backend, both
+apps, and the future backend API. Items marked **CONFIGURABLE** are decided
+in shape but their numbers live in backend configuration.
+
+> **Status of the code:** the mock backend and both apps implement this
+> version (§19). Anything in §17 is still open.
+
+---
+
+## 1. The principle
+
+> **Before work starts, Fundi-X protects the customer's ability to leave.
+> Once work starts, Fundi-X protects the provider's approved payment, while
+> preserving the customer's right to dispute the work.**
 
 A **Job** is the single source of truth connecting a customer's vehicle need,
 the assigned provider, the work, the quotes, and every shilling paid, held,
 released or refunded. The customer app and the mechanic app are two windows
-onto the same job. The backend is the referee: it owns the state machine,
-the money, and every rule below.
+onto it. The backend is the referee: it owns the state machine, prices,
+matching, the money and every rule below.
+
+### Rules that apply everywhere
+
+1. **One job, three actors:** `CUSTOMER`, `PROVIDER`, `SYSTEM` (the platform,
+   including support). Every status change is made by exactly one actor and
+   recorded as a `JobEvent`.
+2. **Status is lifecycle; money is facts.** Status says where the *work* is.
+   Whether money moved lives on `Payment`, `Refund` and `Release` records.
+3. **Escrow.** All customer money goes into Fundi-X escrow. It leaves only
+   when the job ends: released to the provider (minus commission) or refunded.
+4. **Store facts, calculate balances.** Charges and payments are immutable;
+   balances are always calculated.
+5. **The backend sets every price.** Apps display prices; they never
+   calculate them. Bookings carry the price the customer saw, and the backend
+   refuses them if it no longer matches.
+6. **Agreed prices are frozen.** Prices are copied into the job's quote when
+   agreed. Later catalog changes never alter an existing job.
+7. **No surprise charges.** Every amount is shown and accepted before it can
+   be charged.
+8. **A closed job never leaves a debt.** All service money is collected
+   before work starts, so a job can end without anyone owing anything; unpaid
+   charges on a closed job are void.
 
 ---
 
-## 1. Principles
+## 2. Pricing modes
 
-1. **One job, three actors.** `CUSTOMER`, `PROVIDER`, `SYSTEM`. Every change
-   to a job is made by exactly one of them and recorded as a `JobEvent`.
-2. **Status is lifecycle; payments are facts.** A job's status says where the
-   *work* is. Whether money moved lives on `Payment`, `Refund` and `Release`
-   records, never as a job status.
-3. **Escrow.** Every customer payment goes into Fundi-X escrow. Money leaves
-   escrow only when the job ends: **released** to the provider (minus
-   commission) or **refunded** to the customer.
-4. **Store facts, calculate balances.** Charges and payments are stored as
-   immutable records. "Amount due" and "provider earnings" are always worked
-   out from them, never stored.
-5. **Each actor controls only their own decisions.** Customers approve prices
-   and confirm work. Providers do and describe the work. Only the system
-   matches, confirms payments, moves money and enforces the rules.
-6. **No surprise charges.** The customer sees and accepts every amount before
-   it can be charged.
+The backend decides each job's pricing mode at booking.
 
----
-
-## 2. Job types
-
-The flow forks on a job's **pricing mode**, set by the backend at booking:
-`FIXED` when Fundi-X can price the work from its catalog, `QUOTED` when the
-provider must diagnose and quote. Maintenance is normally `FIXED`, but a
-service the catalog can't price ("Other service") is `QUOTED`, so the rules
-key off pricing mode rather than job type.
-
-| | **Repair** (`requestType: 'repair'`) | **Maintenance** (`requestType: 'service'`) |
-|---|---|---|
-| Example | "Grinding noise when braking" | "Full service, Toyota Fielder" |
-| Price known at booking? | No, only the call-out | Yes: Fundi-X base quote + call-out |
-| Who writes the main quote | Provider, after diagnosis | Fundi-X, before booking |
-| After arrival | `DIAGNOSING` → `QUOTE_SENT` → customer approves | Straight to `IN_PROGRESS` |
-| Extra work found on site | Additional quote (provider) | Additional quote (provider) |
-
----
-
-## 3. Money
-
-### 3.1 Records
-
-| Record | Meaning | Created by |
-|---|---|---|
-| `Charge` | Something the customer owes: `CALL_OUT`, or the total of an approved quote | SYSTEM |
-| `Payment` | Money the customer sent into escrow. `purpose: CALL_OUT \| SERVICE` | SYSTEM, on M-Pesa confirmation |
-| `Refund` | Money returned from escrow to the customer | SYSTEM |
-| `Release` | Money paid out of escrow to the provider: gross, commission, net | SYSTEM, when the job ends |
-
-All amounts are integer cents (`Cents`). Commission is in basis points.
-
-```
-balance due   = Σ charges − Σ successful payments
-provider net  = Σ released − commission
-```
-
-### 3.2 Call-out fee
-
-- Covers **transport and inspection**. There is no separate inspection fee.
-- Calculated by Fundi-X, never by the provider:
-  `call-out = base + distance component (+ category adjustment)`.
-  Starting point: base KSh 500 + distance component. **OPEN:** exact formula;
-  distance bands or zones.
-- Shown to the customer before they pay. Paid **before** dispatch.
-- Belongs to the provider who attends, minus commission, released at job end.
-
-### 3.3 Commission
-
-- Configurable per charge kind (`CALL_OUT`, `SERVICE`) and later per provider
-  type. Default 10% (1000 bp) on both.
-- Taken at release time. If nothing is released, nothing is earned.
-
-### 3.4 Customer view
-
-Stored as a full ledger; shown as "already paid / still to pay":
-
-```
-Call-out (paid)            KSh   800  ✓
-Service                    KSh 7,000
-───────────────────────────────────────
-Still to pay               KSh 7,000
-```
-
-### 3.5 Outcomes: where escrow money goes
-
-| How the job ends | Call-out in escrow | Service money | Provider gets | Fundi-X gets |
-|---|---|---|---|---|
-| Call-out payment never completes | – (nothing paid) | – | – | – |
-| No provider found | Refund 100% | – | – | – |
-| Customer cancels before provider starts trip (`SEARCHING`, `OFFERED`, `ACCEPTED`) | Refund 100% | – | – | – |
-| Customer cancels while provider is `EN_ROUTE` | Released | – | call-out − commission | commission |
-| Provider withdraws (`ACCEPTED`/`EN_ROUTE`) | **Kept in escrow**, job rematched | – | nothing | – |
-| …and no replacement found | Refund 100% | – | – | – |
-| Repair quote declined | Released | – | call-out − commission | commission |
-| Customer not at location (§6) | Released | – | call-out − commission | commission |
-| Completed normally | Released | Released | (call-out + service) − commission | commission |
-| Dispute closed without charge | **OPEN** | Refund if paid | **OPEN** | **OPEN** |
-
-> **Check with a lawyer/bank:** holding customer money before passing it to
-> providers may require a licensed escrow or trust arrangement in Kenya.
-> The design doesn't change, but who holds the account might.
-
----
-
-## 4. Pricing
-
-| Price | Set by | When | Customer accepts |
+| Mode | Who prices | Price known | Typical example |
 |---|---|---|---|
-| Call-out | Fundi-X formula | At booking | By paying it |
-| Maintenance base quote | Fundi-X pricing catalog | At booking | Explicitly, before paying the call-out (`acceptedAt`, `acceptedBy`) |
-| Repair quote | Provider | After diagnosis | In the app (`QUOTE_SENT`) |
-| Additional quote | Provider | During `IN_PROGRESS` | In the app; base work continues meanwhile |
+| `FIXED` | Fundi-X pricing engine | Before booking | Oil service, full service; later, common repairs once the data supports it |
+| `QUOTED` | Provider, after diagnosis | On site | Engine fault, accident damage, unusual repairs, services the catalog can't price |
 
-### 4.1 Quotes
+**Additional quotes** (provider-issued) can be added to either mode during
+`IN_PROGRESS` for extra work found on site. They add to the agreed price;
+they never change it.
 
-```ts
-Quote {
-  kind: 'BASE' | 'ADDITIONAL'
-  issuedBy: 'FUNDI_X' | 'PROVIDER'
-  version            // revisions of the same quote (repair BASE only)
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED'
-  items[]            // PART | LABOUR | CONSUMABLE | OTHER — never call-out
-  reason?            // ADDITIONAL: why it's needed ("pads at 2 mm")
-  acceptedAt?, acceptedBy?
-}
+The flow forks on pricing mode, not on repair vs service, so moving a type
+of work from `QUOTED` to `FIXED` only needs a catalog entry, never a change
+to the apps.
+
+---
+
+## 3. Pricing engine (backend)
+
+### 3.1 Call-out fee
+
+- Covers the provider's **transport and inspection**. No separate inspection
+  fee exists.
+- **CONFIGURABLE:** a backend pricing rule (`call_out_rules`, with
+  `effective_from`). v1.0 value: **KSh 800**, flat.
+- Flat is fair because matching is **ring-limited with H3** (§4): no provider
+  further than the maximum ring is ever offered the job.
+- Later: per-area overrides keyed by a coarse H3 parent cell.
+
+### 3.2 Fixed-price catalog
+
+- Tables: service packages → package items, part prices, labour rates,
+  vehicle adjustments; every price has `effective_from`.
+- Inputs: vehicle (make, model, year, engine), service package, location zone.
+- Output: line items with standard **service codes** and a total.
+- Temporary by design: Fundi-X prices maintenance only until real job data
+  supports a better model. The engine sits behind one interface
+  (`PricingService`) so it can be replaced without touching the job flow.
+
+### 3.3 Quotes
+
+```
+Quote
+  kind: BASE | ADDITIONAL
+  issuedBy: FUNDI_X | PROVIDER
+  version            // revisions of a PROVIDER BASE quote
+  status: PENDING | APPROVED | REJECTED | SUPERSEDED
+  items[]: { serviceCode, kind, description, quantity, unitPrice, total }
+  reason?            // ADDITIONAL: why it's needed
+  respondedAt?, respondedBy?
 ```
 
-- A job can have several quotes: one `BASE` (with versions) and any number
-  of `ADDITIONAL`.
-- Providers can **never** edit a Fundi-X quote. Differences found on site
-  (e.g. a pricier filter) are raised as an `ADDITIONAL` quote with a reason.
-- A **revision** replaces a pending quote (old one `SUPERSEDED`). An
-  **additional** quote adds to an approved one. These are different things.
-- An approved quote becomes a `Charge`.
+- Item kinds: `PART | LABOUR | CONSUMABLE | OTHER`. Never call-out.
+- **Service codes** (e.g. `BRAKE_PAD_FRONT`) come from a standard list;
+  free-text description is kept, and an `OTHER` code covers anything not
+  listed. This is what makes the pricing data analysable.
+- A **revision** replaces a pending BASE quote (old one `SUPERSEDED`). An
+  **additional** quote adds to an approved BASE quote. Different things.
+- A `FUNDI_X` BASE quote is created `APPROVED` at booking
+  (`respondedBy: CUSTOMER`, `respondedAt`): proof of what was agreed.
 
-### 4.2 Maintenance pricing is temporary
+---
 
-Fundi-X sets maintenance prices only for the first years of operation, to
-build a dataset for a better pricing model. Therefore:
+## 4. Matching (H3)
 
-- Pricing sits behind one interface (`PricingService`) so the catalog can be
-  replaced by a model later without touching the job flow.
-- Every quote and line item is stored in a structured form (kind, part,
-  quantity, unit price) with the vehicle (make, model, engine, year),
-  location and date.
-- Additional quotes on maintenance jobs are especially valuable: they show
-  where the catalog was wrong. Record the reason.
-- Repair quotes from providers are recorded the same way, as data for a future
-  repair pricing model.
+- The app sends coordinates; the **backend** converts them to an H3 cell.
+  The app never chooses its own zone.
+- Online providers report location regularly; the backend stores their
+  current cell.
+- Search ring by ring: the customer's cell (k = 0), then k = 1, k = 2, … up
+  to a maximum. **CONFIGURABLE:** resolution (indicative: 8) and max k
+  (indicative: ≈ 5 km).
+- Candidates: online, not busy (no unfinished job, no open offer), not
+  already offered this job. Rank by ring, then reliability and rating.
+- Each matching round widens the search by one ring. After the last ring
+  with nobody available: `CANCELLED` (`no_provider_available`), call-out
+  refunded.
+- ETAs come from routing, not H3 (hexagon distance is a straight line).
+- Each job also stores a **coarse H3 cell** (indicative: resolution 6) as
+  its `locationZone`, for pricing analysis without exposing addresses.
 
 ---
 
 ## 5. States
 
-`DRAFT` exists only on the customer's phone (`RequestDraft`); the backend's
-lifecycle starts when the job is created.
+`DRAFT` lives only on the customer's phone. The backend lifecycle starts at
+booking.
 
 | # | Status | Meaning |
 |---|---|---|
-| 1 | `CALL_OUT_PAYMENT_PENDING` | Job created; waiting for the call-out payment |
-| 2 | `SEARCHING` | Paid; looking for a provider |
-| 3 | `OFFERED` | Offered to one provider, waiting for their answer |
+| 1 | `CALL_OUT_PAYMENT_PENDING` | Booked; waiting for the call-out |
+| 2 | `SEARCHING` | Call-out in escrow; looking for a provider |
+| 3 | `OFFERED` | Offered to one provider |
 | 4 | `ACCEPTED` | Provider assigned, not yet travelling |
-| 5 | `EN_ROUTE` | Provider travelling to the vehicle |
+| 5 | `EN_ROUTE` | Provider travelling |
 | 6 | `ARRIVED` | Provider at the vehicle |
-| 7 | `DIAGNOSING` | *Repair only.* Inspecting, preparing a quote |
-| 8 | `QUOTE_SENT` | *Repair only.* Quote waiting for the customer |
-| 9 | `IN_PROGRESS` | Approved work being done |
-| 10 | `AWAITING_CONFIRMATION` | Provider says done; customer checking |
-| 11 | `PAYMENT_PENDING` | Customer confirmed; service payment due |
-| 12 | `COMPLETED` | Paid in full; escrow released |
-| 13 | `CANCELLED` | Ended early; escrow refunded or released per §3.5 |
+| 7 | `DIAGNOSING` | *QUOTED only.* Inspecting, preparing a quote |
+| 8 | `QUOTE_SENT` | *QUOTED only.* Quote waiting for the customer |
+| 9 | `SERVICE_PAYMENT_PENDING` | Price agreed; waiting for the service money to reach escrow |
+| 10 | `IN_PROGRESS` | Work under way; service money in escrow |
+| 11 | `AWAITING_CONFIRMATION` | Provider says done; customer checking |
+| 12 | `COMPLETED` | Confirmed; escrow released |
+| 13 | `CANCELLED` | Ended early; escrow refunded or released per §8 |
 | 14 | `DISPUTED` | Customer reported a problem; support reviewing |
 
-**Removed from the current code:** `PAID`. Service payment success moves
-the job straight from `PAYMENT_PENDING` to `COMPLETED` (principle 2).
+**Changed from v0.2:** `PAYMENT_PENDING` (after the work) is replaced by
+`SERVICE_PAYMENT_PENDING` (before the work). The new name pairs with
+`CALL_OUT_PAYMENT_PENDING` and makes clear which money it waits for.
+
+### The two paths
+
+```
+QUOTED  … ARRIVED → DIAGNOSING → QUOTE_SENT → SERVICE_PAYMENT_PENDING → IN_PROGRESS → …
+FIXED   … ARRIVED ─────────────────────────→ SERVICE_PAYMENT_PENDING → IN_PROGRESS → …
+```
+
+**When fixed-price money is collected.** At arrival, not at
+booking. The provider checks the vehicle matches the booking (model, engine,
+oil spec) and taps "Ready to start"; the customer then pays the agreed price
+into escrow. Reasons: same step for both paths; the customer only commits
+the larger amount once a provider is actually there; a mismatched vehicle is
+caught before money is taken.
 
 ---
 
 ## 6. Transitions
 
-Anything not listed is forbidden. **Guards** are conditions beyond "right
-actor, right status".
+Anything not listed is forbidden.
 
-| From | To | Actor | Guard / trigger | Money |
-|---|---|---|---|---|
-| (new) | `CALL_OUT_PAYMENT_PENDING` | CUSTOMER | Maintenance: base quote accepted | Call-out `Charge` created |
-| `CALL_OUT_PAYMENT_PENDING` | `SEARCHING` | SYSTEM | Call-out payment SUCCESS | In escrow |
-| `CALL_OUT_PAYMENT_PENDING` | `CANCELLED` | CUSTOMER | Abandons booking | none |
-| `CALL_OUT_PAYMENT_PENDING` | `CANCELLED` | SYSTEM | Unpaid after **30 min** | none |
-| `SEARCHING` | `OFFERED` | SYSTEM | Provider online, free, not yet asked | – |
-| `SEARCHING` | `CANCELLED` | CUSTOMER | – | Refund call-out |
-| `SEARCHING` | `CANCELLED` | SYSTEM | No provider after matching window | Refund call-out |
-| `OFFERED` | `ACCEPTED` | PROVIDER | Must be the offered provider | – |
-| `OFFERED` | `SEARCHING` | PROVIDER | Declines | – |
-| `OFFERED` | `SEARCHING` | SYSTEM | Offer expired (45 s) | – |
-| `OFFERED` | `CANCELLED` | CUSTOMER | – | Refund call-out |
-| `ACCEPTED` | `EN_ROUTE` | PROVIDER | Assigned provider | – |
-| `ACCEPTED` | `SEARCHING` | PROVIDER | Withdraws; rematch, provider excluded | Stays in escrow |
-| `ACCEPTED` | `CANCELLED` | CUSTOMER | – | Refund call-out |
-| `EN_ROUTE` | `ARRIVED` | PROVIDER | Assigned provider | – |
-| `EN_ROUTE` | `SEARCHING` | PROVIDER | Withdraws; rematch | Stays in escrow |
-| `EN_ROUTE` | `CANCELLED` | CUSTOMER | Warned call-out is non-refundable | Release call-out |
-| `ARRIVED` | `DIAGNOSING` | PROVIDER | **`QUOTED`** jobs | – |
-| `ARRIVED` | `IN_PROGRESS` | PROVIDER | **`FIXED`** jobs (base quote already approved) | – |
-| `ARRIVED` | `CANCELLED` | PROVIDER | Customer not found after **15 min** wait | Release call-out |
-| `DIAGNOSING` | `QUOTE_SENT` | PROVIDER | Valid quote | – |
-| `QUOTE_SENT` | `IN_PROGRESS` | CUSTOMER | Approves the *current* quote version | Quote → `Charge` |
-| `QUOTE_SENT` | `DIAGNOSING` | PROVIDER | Revises; old quote `SUPERSEDED` | – |
-| `QUOTE_SENT` | `CANCELLED` | CUSTOMER | Declines repair | Release call-out |
-| `IN_PROGRESS` | `AWAITING_CONFIRMATION` | PROVIDER | **No `ADDITIONAL` quote still `PENDING`** | – |
-| `AWAITING_CONFIRMATION` | `PAYMENT_PENDING` | CUSTOMER | Confirms work | – |
-| `AWAITING_CONFIRMATION` | `PAYMENT_PENDING` | SYSTEM | No response in **48 h** (auto-confirm) | – |
-| `AWAITING_CONFIRMATION` | `DISPUTED` | CUSTOMER | Gives a reason | Escrow held |
-| `PAYMENT_PENDING` | `COMPLETED` | SYSTEM | Service payment SUCCESS | Release all |
-| `DISPUTED` | `IN_PROGRESS` | SYSTEM | Support: provider fixes it at no extra cost | Escrow held |
-| `DISPUTED` | `PAYMENT_PENDING` | SYSTEM | Support: work was fine (amount may be adjusted) | – |
-| `DISPUTED` | `CANCELLED` | SYSTEM | Support: close without charge | **OPEN** (§3.5) |
+| From | To | Actor | Guard / trigger | Reason recorded | Money (§8) |
+|---|---|---|---|---|---|
+| (booking) | `CALL_OUT_PAYMENT_PENDING` | CUSTOMER | Price matches backend; FIXED quote accepted | – | Call-out `Charge`; FIXED: service `Charge` |
+| `CALL_OUT_PAYMENT_PENDING` | `SEARCHING` | SYSTEM | Call-out payment SUCCESS | – | In escrow |
+| `CALL_OUT_PAYMENT_PENDING` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Nothing paid |
+| `CALL_OUT_PAYMENT_PENDING` | `CANCELLED` | SYSTEM | Unpaid 30 min, no payment in flight | `call_out_unpaid` | Nothing paid |
+| `SEARCHING` | `OFFERED` | SYSTEM | Candidate found (§4) | – | – |
+| `SEARCHING` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Refund call-out |
+| `SEARCHING` | `CANCELLED` | SYSTEM | Max ring, nobody | `no_provider_available` | Refund call-out |
+| `OFFERED` | `ACCEPTED` | PROVIDER | Must be the offered provider | – | – |
+| `OFFERED` | `SEARCHING` | PROVIDER | Declines | – | – |
+| `OFFERED` | `SEARCHING` | SYSTEM | Offer expired (45 s) | – | – |
+| `OFFERED` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Refund call-out |
+| `ACCEPTED` | `EN_ROUTE` | PROVIDER | Assigned provider; records `expectedArrivalAt` | – | – |
+| `ACCEPTED` | `SEARCHING` | PROVIDER | Withdraws; rematch, provider excluded | reliability event | Stays in escrow |
+| `ACCEPTED` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Refund call-out |
+| `EN_ROUTE` | `ARRIVED` | PROVIDER | Assigned provider | – | – |
+| `EN_ROUTE` | `SEARCHING` | PROVIDER | Withdraws; rematch | reliability event | Stays in escrow |
+| `EN_ROUTE` | `CANCELLED` | CUSTOMER | Before `expectedArrivalAt` + 20 min | `customer_cancelled` | Release call-out |
+| `EN_ROUTE` | `CANCELLED` | CUSTOMER | After `expectedArrivalAt` + 20 min | `provider_late` + reliability event | **Refund** call-out |
+| `ARRIVED` | `DIAGNOSING` | PROVIDER | QUOTED | – | – |
+| `ARRIVED` | `SERVICE_PAYMENT_PENDING` | PROVIDER | FIXED; vehicle matches booking | – | – |
+| `ARRIVED` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Release call-out |
+| `ARRIVED` | `CANCELLED` | PROVIDER | 15 min after `arrivedAt` | `customer_no_show` | Release call-out |
+| `DIAGNOSING` | `QUOTE_SENT` | PROVIDER | Valid quote | – | – |
+| `DIAGNOSING` | `CANCELLED` | CUSTOMER | – | `customer_cancelled` | Release call-out |
+| `QUOTE_SENT` | `SERVICE_PAYMENT_PENDING` | CUSTOMER | Approves the *current* version | – | Quote → `Charge` |
+| `QUOTE_SENT` | `DIAGNOSING` | PROVIDER | Revises; old quote `SUPERSEDED` | – | – |
+| `QUOTE_SENT` | `CANCELLED` | CUSTOMER | Declines | `quote_declined` | Release call-out |
+| `SERVICE_PAYMENT_PENDING` | `IN_PROGRESS` | SYSTEM | Service payment SUCCESS | – | In escrow |
+| `SERVICE_PAYMENT_PENDING` | `CANCELLED` | CUSTOMER | Backs out before paying | `customer_cancelled` | Release call-out |
+| `SERVICE_PAYMENT_PENDING` | `CANCELLED` | SYSTEM | Unpaid 30 min, no payment in flight | `service_unpaid` | Release call-out |
+| `IN_PROGRESS` | `AWAITING_CONFIRMATION` | PROVIDER | No `ADDITIONAL` quote `PENDING` | – | – |
+| `AWAITING_CONFIRMATION` | `COMPLETED` | CUSTOMER | Confirms | – | Release all |
+| `AWAITING_CONFIRMATION` | `COMPLETED` | SYSTEM | 48 h without response | `auto_confirmed` | Release all |
+| `AWAITING_CONFIRMATION` | `DISPUTED` | CUSTOMER | Gives a reason | – | Escrow held |
+| `DISPUTED` | `IN_PROGRESS` | SYSTEM | Support: provider fixes it | `rework` | Escrow held |
+| `DISPUTED` | `COMPLETED` | SYSTEM | Support: work was fine | `dispute_upheld_provider` | Release all |
+| `DISPUTED` | `CANCELLED` | SYSTEM | Support: split decided (§9) | `dispute_resolved` | Per resolution |
 
-**Customer cancellations after arrival** (`ARRIVED`, `DIAGNOSING`) aren't
-listed: the customer declines the quote instead. **OPEN:** whether a
-maintenance customer may cancel after the provider arrives (would release the
-call-out).
+**Late arrival after a late cancellation.** Once `CANCELLED`, nothing moves
+the job again. A provider who arrives at 2:25 after a 2:21 `provider_late`
+cancellation can't claim the call-out: settlement happened at cancellation.
 
-**Additional quotes** don't change job status. While `IN_PROGRESS`:
-`PROVIDER` raises one → it's `PENDING` → `CUSTOMER` approves (becomes a
-`Charge`) or rejects (work not done). Base work continues throughout.
+**Who can cancel what (customer):**
 
----
-
-## 7. The matrix: one state, three views
-
-| Status | Customer sees / can do | Mechanic sees / can do | System does | Notify |
-|---|---|---|---|---|
-| `CALL_OUT_PAYMENT_PENDING` | Price summary (call-out, + base quote for maintenance). **Pay call-out**, cancel | – | STK push, 60 s per attempt; abandon timer | – |
-| `SEARCHING` | "Finding a trusted fundi". Cancel (full refund) | – | Match: online, free, nearest not yet asked; retry window | – |
-| `OFFERED` | "We've found a fundi, waiting for them to confirm". Cancel (full refund) | Offer card, countdown. **Accept / Decline** | 45 s expiry → next provider | Mechanic: new job |
-| `ACCEPTED` | Provider card. Cancel (full refund) | **I'm on my way**. Withdraw | Lock assignment | Customer: fundi confirmed |
-| `EN_ROUTE` | Map, live ETA. Cancel (**call-out not refunded**, warned first) | Navigate. **I've arrived**. Withdraw | ETA updates | Customer: on the way |
-| `ARRIVED` | "Your fundi has arrived" | Repair: **Start inspection**. Maintenance: **Start service**. Customer not found | No-show timer | Customer: arrived |
-| `DIAGNOSING` | "Inspecting your vehicle" | **Create quote** | – | – |
-| `QUOTE_SENT` | Quote. **Approve / Decline** (decline: call-out kept, job ends) | Waiting. **Change quote** | Track versions | Customer: estimate ready |
-| `IN_PROGRESS` | Approved work list. **Approve / reject** any additional quote | Work. **Raise additional quote**. **Mark complete** (blocked while one is pending) | – | Customer: additional quote |
-| `AWAITING_CONFIRMATION` | Work notes. **Confirm / Report a problem** | Waiting | Auto-confirm timer | Customer: please confirm |
-| `PAYMENT_PENDING` | "Paid KSh 800 · still to pay KSh 7,000". **Pay** | Waiting for payment | STK push; reminders | Customer: payment due |
-| `COMPLETED` | Receipt. **Rate** | Earnings breakdown | Release escrow, commission, payout | Both: completed / paid out |
-| `CANCELLED` | Why it ended; refund status; **Request again** | Why it ended; any call-out earned | Refund or release per §3.5 | Both |
-| `DISPUTED` | "We're looking into it" | Customer's report | Support review | Both; support |
-
----
-
-## 8. Failure scenarios
-
-| Scenario | Handling |
-|---|---|
-| Call-out STK cancelled / low balance / timeout | Payment `FAILED`; job stays `CALL_OUT_PAYMENT_PENDING`; retry |
-| Customer never pays the call-out | Auto-cancel after 30 min (not while a PIN prompt is open); nothing to refund |
-| Every provider declines or ignores | `CANCELLED` (SYSTEM), automatic full refund |
-| Provider withdraws after accepting | Back to `SEARCHING`, provider excluded, money stays in escrow |
-| Provider never presses "arrived" | **OPEN:** support alert after ETA + margin |
-| Customer not at the location | Provider waits 15 min, then `CANCELLED`, call-out released |
-| Customer acts on an outdated quote | Rejected (`StaleQuoteError`); app shows the current quote |
-| Provider tries to finish with an additional quote pending | Blocked by guard |
-| Customer doesn't confirm completion | Auto-confirm after 48 h |
-| Service payment never made | **OPEN:** reminders, then support/collections; escrow keeps the call-out |
-| Refund to M-Pesa fails | Refund stays `PENDING`, retried; support alert |
-| Two actions at once (e.g. cancel vs accept) | Backend checks the status at write time; the later action gets `JobTransitionError` |
-
-**OPEN:** providers who withdraw repeatedly (penalties, ranking).
-
----
-
-## 9. Implementation notes
-
-All of the above runs in the mock backend. Things worth knowing when the
-real backend is built:
-
-| Area | Where | Note |
+| Status | Cancel? | Call-out |
 |---|---|---|
-| Transition rules | `domain/jobs/transitions.ts` | Guards by `pricingMode` |
-| Time limits | `domain/jobs/rules.ts` | 30 min / 15 min / 48 h, shared by backend and apps |
-| Escrow rules | `domain/billing/ledger.ts` → `settlementFor()` | Pure function; called once when a job ends |
-| Ledger | `Charge`, `Payment`, `Refund`, `Release` | Balances are always calculated, never stored |
-| Pricing | `PricingService` + `data/mock/mockPricing.ts` | Backend re-prices every booking (`PriceChangedError`) |
-| Cross-record rule | "can't finish with an additional quote pending" | Enforced in the repository, not the table |
-| Late payment | Call-out paid after the booking was cancelled | Refunded automatically |
-| Dispute closed without charge | `settlementFor()` returns `hold` | Money stays in escrow until the OPEN rule is decided |
-| Call-out distance | `CALL_OUT_DISTANCE` | Flat KSh 300 until the formula is decided (OPEN) |
+| `CALL_OUT_PAYMENT_PENDING` | Yes | Nothing paid |
+| `SEARCHING`, `OFFERED`, `ACCEPTED` | Yes | Refunded |
+| `EN_ROUTE` (on time) | Yes | Kept by provider |
+| `EN_ROUTE` (ETA + 20 min passed) | Yes | **Refunded**; provider reliability event |
+| `ARRIVED`, `DIAGNOSING` | Yes | Kept by provider |
+| `QUOTE_SENT` | Decline instead | Kept by provider |
+| `SERVICE_PAYMENT_PENDING` | Yes | Kept by provider |
+| `IN_PROGRESS`, `AWAITING_CONFIRMATION` | No — report a problem | Escrow held |
+| `COMPLETED`, `CANCELLED`, `DISPUTED` | No | Settled / support |
+
+---
+
+## 7. Additional quotes
+
+While `IN_PROGRESS` (either mode):
+
+1. `PROVIDER` raises an `ADDITIONAL` quote with items and a reason. Base work
+   continues; job status doesn't change.
+2. `CUSTOMER` either declines (quote `REJECTED`, extra work not done) or
+   **approves and pays in one step**: the quote becomes `APPROVED` and a
+   `Charge` is created only once the payment reaches escrow. If the payment
+   fails, the quote stays `PENDING` and the customer can retry or decline.
+3. The provider can't mark the job complete while any additional quote is
+   `PENDING`.
+
+Approving and paying are one step here (unlike the BASE quote, where they're
+two job statuses) because an additional quote doesn't change the job's
+status, so the quote itself must carry the state.
+
+---
+
+## 8. Escrow settlement
+
+Runs exactly once, when a job reaches `COMPLETED` or `CANCELLED`. One pure
+function (`settlementFor`) decides; the backend records the result.
+
+| How the job ended | Call-out in escrow | Service money in escrow |
+|---|---|---|
+| `call_out_unpaid` | – | – |
+| `customer_cancelled` from `CALL_OUT_PAYMENT_PENDING` | – | – |
+| `customer_cancelled` from `SEARCHING` / `OFFERED` / `ACCEPTED` | Refund | – |
+| `no_provider_available` | Refund | – |
+| `provider_late` | Refund | – |
+| `customer_cancelled` from `EN_ROUTE` / `ARRIVED` / `DIAGNOSING` / `SERVICE_PAYMENT_PENDING` | Release | – |
+| `quote_declined` | Release | – |
+| `service_unpaid` | Release | – |
+| `customer_no_show` | Release | – |
+| `COMPLETED` (confirmed, auto-confirmed, or dispute upheld) | Release | Release |
+| `dispute_resolved` | Per resolution (§9) | Per resolution (§9) |
+
+- **Release** = paid to the assigned provider, minus commission.
+- **Commission (CONFIGURABLE):** per money purpose (`CALL_OUT`, `SERVICE`) in
+  basis points; default 1000 bp (10%) for both. Taken only on released money.
+- **Unpaid charges on a closed job are void** (principle 8). There are no
+  collections in v1.0.
+- **Money that arrives after a job closed** (e.g. the customer completes the
+  M-Pesa PIN after cancelling) is refunded automatically.
+
+---
+
+## 9. Disputes
+
+- Raised only from `AWAITING_CONFIRMATION`, with a reason. All money stays in
+  escrow.
+- Support reviews and records a **resolution**:
+
+```
+DisputeResolution
+  outcome: REWORK | UPHOLD_PROVIDER | SPLIT
+  customerRefund: Cents
+  providerPayout: Cents      // gross, before commission
+  decidedBy: support agent id
+  note
+```
+
+- `REWORK` → `IN_PROGRESS` (provider fixes it at no extra cost).
+- `UPHOLD_PROVIDER` → `COMPLETED` (normal release).
+- `SPLIT` → `CANCELLED` (`dispute_resolved`); settlement follows the split.
+- **Invariant:** `customerRefund + providerPayout` must equal exactly what is
+  in escrow for the job. The backend rejects any other resolution.
+- Commission applies to `providerPayout` only.
+
+---
+
+## 10. Time limits (CONFIGURABLE)
+
+| Limit | Value | What happens |
+|---|---|---|
+| Call-out payment window | 30 min | Booking closed (`call_out_unpaid`) unless a payment is in flight |
+| M-Pesa prompt | 60 s | Payment `FAILED` (`timeout`); retry allowed |
+| Offer response | 45 s | Next provider |
+| Matching | Until max H3 ring | `no_provider_available`, refund |
+| Late provider grace | ETA + 20 min | Customer may cancel with full refund |
+| Not-arrived alert | ETA + 20 min | Reminder to provider; support alerted. **Never** auto-`ARRIVED` |
+| No-show wait | 15 min after arrival | Provider may end the job, keeps call-out |
+| Service payment window | 30 min | `service_unpaid`; provider keeps call-out |
+| Confirmation | 48 h | Auto-confirm → `COMPLETED` |
+| Dispute review | Support SLA (**CONFIGURABLE**) | – |
+
+---
+
+## 11. The matrix: one state, three views
+
+| Status | Customer sees / can do | Provider sees / can do | System does | Notify |
+|---|---|---|---|---|
+| `CALL_OUT_PAYMENT_PENDING` | Price summary; **Pay call-out**; cancel | – | STK push; 30-min window | – |
+| `SEARCHING` | "Finding a fundi"; cancel (refund) | – | H3 ring search | – |
+| `OFFERED` | "Found a fundi, waiting to confirm"; cancel (refund) | Offer + countdown; **Accept / Decline** | 45-s expiry | Provider: new job |
+| `ACCEPTED` | Provider card; cancel (refund) | **I'm on my way**; withdraw | Lock assignment | Customer: confirmed |
+| `EN_ROUTE` | Map, ETA; cancel (kept, or refunded if late) | **I've arrived**; withdraw | ETA; late alert | Customer: on the way |
+| `ARRIVED` | "Fundi has arrived"; cancel (kept) | QUOTED: **Start inspection**. FIXED: **Ready to start**. **Customer not here** after 15 min | No-show timer | Customer: arrived |
+| `DIAGNOSING` | "Inspecting"; cancel (kept) | **Create quote** | – | – |
+| `QUOTE_SENT` | Quote; **Approve / Decline** | Waiting; **Change quote** | Track versions | Customer: estimate ready |
+| `SERVICE_PAYMENT_PENDING` | Agreed price; **Pay into escrow**; cancel (kept) | "Waiting for payment — don't start yet" | STK push; 30-min window | Customer: pay to start |
+| `IN_PROGRESS` | Agreed work; **Approve & pay / Decline** extra quotes | Work; **Quote extra work**; **Mark complete** | – | Customer: extra quote |
+| `AWAITING_CONFIRMATION` | Work notes; **Confirm / Report a problem** | Waiting | 48-h auto-confirm | Customer: please confirm |
+| `COMPLETED` | Receipt; **Rate** | Earnings breakdown | Release escrow, commission, payout | Both |
+| `CANCELLED` | Why; refund status; **Request again** | Why; any call-out earned | Settle per §8 | Both |
+| `DISPUTED` | "We're looking into it" | Customer's report | Support review, resolution | Both; support |
+
+---
+
+## 12. Payments, refunds and releases
+
+| Record | Created when | Key fields |
+|---|---|---|
+| `Charge` | Call-out at booking; service when a quote is approved (FIXED: at booking) | purpose, amount, quoteId |
+| `Payment` | Customer starts an STK push | purpose, phone, amount, status, M-Pesa `CheckoutRequestID`, receipt |
+| `Refund` | Settlement or late payment | paymentId, amount, reason, status |
+| `Release` | Settlement | providerId, lines (per payment: gross, commission), net |
+
+- The **backend decides the purpose and amount** of a payment from the job's
+  status; the app only supplies the phone number.
+- Only one payment per job may be in flight.
+- **Idempotency:** M-Pesa can deliver the same callback more than once. The
+  backend processes each `CheckoutRequestID` once; repeats are ignored.
+- Refunds go back to the paying M-Pesa number (B2C); a failed refund stays
+  `PENDING`, is retried, and alerts support.
+
+---
+
+## 13. Provider reliability
+
+Recorded as events, not fines (v1.0):
+
+| Event | From |
+|---|---|
+| Offer declined / expired | `OFFERED → SEARCHING` |
+| Withdrew after accepting | `ACCEPTED → SEARCHING` |
+| Withdrew while en route | `EN_ROUTE → SEARCHING` |
+| Late (customer cancelled after grace) | `provider_late` |
+| Dispute outcome | `DisputeResolution` |
+| Rating | Customer rating |
+
+**Policy (CONFIGURABLE thresholds):** occasional events → nothing; repeated
+accept-then-withdraw → warning; repeated en-route withdrawals or lateness →
+lower matching priority; severe → temporary suspension pending review.
+
+---
+
+## 14. Events and audit trail
+
+- Every status change: `JobEvent` (from, to, actor, time, metadata).
+- Every money movement: its own immutable record (§12).
+- Quotes keep every version; nothing is edited after the customer answers.
+- Support decisions: `DisputeResolution` with agent and note.
+- Non-lifecycle updates (ETA ticks, location) are not events.
+
+---
+
+## 15. Race conditions
+
+| Race | Outcome |
+|---|---|
+| Customer cancels as provider accepts | Whichever reaches the backend first wins; the other gets `JobTransitionError` |
+| Offer expires as provider accepts | Expiry checks the offer is still the same one; accept checks it's still offered |
+| Customer approves a quote being revised | `StaleQuoteError`; customer sees the new version |
+| Customer cancels with the M-Pesa prompt open, then pays | Payment refunded automatically |
+| Provider arrives after a `provider_late` cancellation | `JobTransitionError`; settlement already done |
+| Duplicate M-Pesa callback | Ignored (idempotency, §12) |
+| Two payments started at once | Second refused while the first is in flight |
+| Double taps | Blocked in the app; the backend's status checks are the real guard |
+| Timer fires after the state moved on | Every timer re-checks the current state before acting |
+
+---
+
+## 16. Required data (backend database)
+
+| Area | Tables (indicative) |
+|---|---|
+| People | customers, providers (online, current H3 cell, last location time, rating), provider_reliability_events |
+| Vehicles | vehicles (make, model, year, engine, registration) |
+| Jobs | jobs (status, pricing mode, H3 cells, timestamps, cancellation), job_events |
+| Quotes | quotes, quote_items (service code, kind, qty, unit price) |
+| Pricing | service_codes, service_packages, package_items, part_prices, labour_rates, vehicle_adjustments, call_out_rules — all with `effective_from` |
+| Money | charges, payments, refunds, releases, commission_rules |
+| Support | dispute_resolutions |
+| Feedback | ratings |
+
+---
+
+## 17. Still open
+
+- Exact H3 resolution, max ring, and matching round timing.
+- Reliability thresholds and their effect on matching.
+- Support SLA for disputes.
+- What happens when a FIXED job's vehicle doesn't match the booking (e.g.
+  different engine): re-price on site, switch to QUOTED, or cancel with the
+  call-out kept.
+
+---
+
+## 18. Decisions added in v1.0 (accepted 2026-10-09)
+
+1. **`SERVICE_PAYMENT_PENDING`** as the state name (replacing `PAYMENT_PENDING`).
+2. **Fixed-price money collected at arrival** after "Ready to start", not at
+   booking (§5).
+3. **Customer may back out at `SERVICE_PAYMENT_PENDING`** (call-out kept):
+   work hasn't started, so the "customer can leave" principle applies.
+4. **30-minute service payment window**, then `service_unpaid`.
+5. **Additional quotes: approve and pay in one step** (§7).
+6. **Disputes can end in `COMPLETED`** when support upholds the provider.
+
+---
+
+## 19. Implemented (v0.2 → v1.0)
+
+| Area | Change |
+|---|---|
+| `JobStatus` | `PAYMENT_PENDING` → `SERVICE_PAYMENT_PENDING`, moved before `IN_PROGRESS` |
+| `TRANSITIONS` | Per §6, incl. `ARRIVED → SERVICE_PAYMENT_PENDING` (FIXED), customer cancel at `ARRIVED`/`DIAGNOSING`/`SERVICE_PAYMENT_PENDING`, `DISPUTED → COMPLETED` |
+| Late provider | `expectedArrivalAt` on `startTrip`; `provider_late` reason; refund |
+| Settlement | New reasons; dispute split from `DisputeResolution` instead of hold |
+| Payments | Service paid before work; additional quotes approve-and-pay |
+| Pricing | Single configurable call-out (KSh 800) |
+| Quotes | `serviceCode` on items; standard code list in the quote builder |
+| Reliability | Record events from withdrawals, lateness, disputes |
+| Customer UI | Pay-to-start step; late-cancel with refund; cancel at arrival/diagnosis |
+| Provider UI | "Ready to start" (FIXED); "Waiting for payment — don't start yet" |

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { jobRepository } from '../../../data/backend';
 import { useAdditionalQuotes, useQuote } from '../../../data/useJob';
@@ -11,6 +12,7 @@ import { QuoteItemsList } from '../../../shared/components/QuoteItemsList';
 import { StatusPill } from '../../../shared/components/StatusPill';
 import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
 import { colors } from '../../../shared/theme/colors';
+import { PaymentPanel } from './PaymentPanel';
 
 /** A repair estimate waiting for the customer's decision. */
 export function QuoteReviewPanel({ job }: { job: Job }) {
@@ -48,7 +50,8 @@ export function QuoteReviewPanel({ job }: { job: Job }) {
       {quote.note && <Text style={textStyles.quote}>“{quote.note}”</Text>}
       <QuoteItemsList items={quote.items} />
       <Text style={styles.note}>
-        You pay this after the work is done and you've checked it.
+        Approve, then pay it into escrow before work starts. Your fundi only
+        receives it once you confirm the work is done.
       </Text>
       <View style={styles.actions}>
         <PrimaryButton
@@ -105,8 +108,9 @@ export function AgreedWorkPanel({
       <QuoteItemsList items={items} totalLabel="Agreed total" />
       {fixed && job.status !== 'COMPLETED' && (
         <Text style={styles.note}>
-          Set by Fundi-X, so your fundi can't change it. You pay it after the
-          work is done. Any extra work needs your approval first.
+          Set by Fundi-X, so your fundi can't change it. You pay it into escrow
+          when your fundi arrives, and it's released once you confirm the work.
+          Any extra work needs your approval first.
         </Text>
       )}
     </Card>
@@ -148,8 +152,14 @@ export function AdditionalQuotesPanel({ job }: { job: Job }) {
   );
 }
 
+/**
+ * Extra work waiting for an answer. Approving means paying for it: the quote
+ * is approved once the money reaches escrow, so the provider is never left
+ * doing approved work that isn't covered.
+ */
 function PendingAdditionalQuote({ job, quote }: { job: Job; quote: Quote }) {
-  const { pending, run } = useAsyncAction<'approve' | 'reject'>();
+  const { pending, run } = useAsyncAction<'reject'>();
+  const [paying, setPaying] = useState(false);
 
   return (
     <Card
@@ -162,25 +172,32 @@ function PendingAdditionalQuote({ job, quote }: { job: Job; quote: Quote }) {
         Your agreed work carries on either way. If you decline, this extra work
         simply won't be done.
       </Text>
-      <View style={styles.actions}>
-        <PrimaryButton
-          label="Approve extra work"
-          onPress={() =>
-            run('approve', () => jobRepository.approveQuote(job.id, quote.id))
-          }
-          loading={pending === 'approve'}
-          disabled={pending !== null}
-        />
-        <PrimaryButton
-          variant="outline"
-          label="No thanks"
-          onPress={() =>
-            run('reject', () => jobRepository.rejectQuote(job.id, quote.id))
-          }
-          loading={pending === 'reject'}
-          disabled={pending !== null}
-        />
-      </View>
+      {paying ? (
+        <>
+          <PaymentPanel job={job} quote={quote} />
+          <PrimaryButton
+            variant="ghost"
+            label="Back"
+            onPress={() => setPaying(false)}
+          />
+        </>
+      ) : (
+        <View style={styles.actions}>
+          <PrimaryButton
+            label={`Approve & pay ${formatKes(quote.total)}`}
+            onPress={() => setPaying(true)}
+            disabled={pending !== null}
+          />
+          <PrimaryButton
+            variant="outline"
+            label="No thanks"
+            onPress={() =>
+              run('reject', () => jobRepository.rejectQuote(job.id, quote.id))
+            }
+            loading={pending === 'reject'}
+          />
+        </View>
+      )}
     </Card>
   );
 }

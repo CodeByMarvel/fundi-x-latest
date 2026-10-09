@@ -133,6 +133,8 @@ export function useJobLedger(jobId: string) {
       charges: charges.filter(c => c.jobId === jobId),
       payments: paid,
       latestPayment: [...payments].reverse().find(p => p.jobId === jobId),
+      /** Every attempt for this job, newest first, whatever its status. */
+      attempts: [...payments].reverse().filter(p => p.jobId === jobId),
       refunds: jobRefunds,
       release: releases.find(r => r.jobId === jobId),
       callOutDue: balanceDue(charges, payments, jobId, 'CALL_OUT'),
@@ -162,5 +164,17 @@ export function useProviders() {
   return useSyncExternalStore(
     providerRepository.subscribe,
     providerRepository.getProvidersSnapshot,
+  );
+}
+
+/** This provider's reliability events, newest first. */
+export function useReliabilityEvents(providerId: string) {
+  const events = useSyncExternalStore(
+    providerRepository.subscribe,
+    providerRepository.getReliabilityEventsSnapshot,
+  );
+  return useMemo(
+    () => [...events].reverse().filter(e => e.providerId === providerId),
+    [events, providerId],
   );
 }

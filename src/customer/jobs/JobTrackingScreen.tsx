@@ -16,7 +16,9 @@ import { Job, JobStatus } from '../../domain/jobs/types';
 import { MapPlaceholder } from '../../shared/components/MapPlaceholder';
 import { PrimaryButton } from '../../shared/components/PrimaryButton';
 import { ScreenHeader } from '../../shared/components/ScreenHeader';
+import { isProviderLate } from '../../domain/jobs/rules';
 import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
+import { useNow } from '../../shared/hooks/useNow';
 import { colors } from '../../shared/theme/colors';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { customerJobView, jobProgress } from './jobPresentation';
@@ -46,8 +48,8 @@ const SHOW_PROVIDER: JobStatus[] = [
   'DIAGNOSING',
   'QUOTE_SENT',
   'IN_PROGRESS',
+  'SERVICE_PAYMENT_PENDING',
   'AWAITING_CONFIRMATION',
-  'PAYMENT_PENDING',
   'DISPUTED',
 ];
 
@@ -60,6 +62,8 @@ export function JobTrackingScreen({ navigation, route }: Props) {
   const { top, bottom } = useSafeAreaInsets();
   const job = useJob(route.params.jobId);
   const { pending, run } = useAsyncAction<'cancel'>();
+  // Ticks so the "your fundi is late" offer appears on time.
+  const now = useNow(15_000);
 
   if (!job) {
     return (
@@ -73,13 +77,14 @@ export function JobTrackingScreen({ navigation, route }: Props) {
   const view = customerJobView(job);
   // The rulebook decides whether cancelling is allowed, not this screen.
   const canCancel = canTransition(job, 'CANCELLED', 'CUSTOMER');
+  const late = isProviderLate(job, now);
 
   const confirmCancel = () =>
     Alert.alert(
       job.status === 'CALL_OUT_PAYMENT_PENDING'
         ? 'Cancel this booking?'
         : 'Cancel this request?',
-      cancelWarning(job),
+      cancelWarning(job, late),
       [
         { text: 'Keep it', style: 'cancel' },
         {
@@ -126,6 +131,16 @@ export function JobTrackingScreen({ navigation, route }: Props) {
           />
         )}
 
+        {late && (
+          <View style={styles.lateBanner}>
+            <Text style={styles.lateTitle}>Your fundi is running late</Text>
+            <Text style={styles.lateText}>
+              They've missed their arrival time by more than 20 minutes. You can
+              cancel now and get your call-out back in full.
+            </Text>
+          </View>
+        )}
+
         {SHOW_PROVIDER.includes(job.status) && <ProviderPanel job={job} />}
 
         <StagePanel job={job} />
@@ -168,6 +183,13 @@ function StagePanel({ job }: { job: Job }) {
       return <AgreedWorkPanel job={job} title="Your fixed-price service" />;
     case 'QUOTE_SENT':
       return <QuoteReviewPanel job={job} />;
+    case 'SERVICE_PAYMENT_PENDING':
+      return (
+        <>
+          <AgreedWorkPanel job={job} />
+          <PaymentPanel job={job} />
+        </>
+      );
     case 'IN_PROGRESS':
       return (
         <>
@@ -177,8 +199,6 @@ function StagePanel({ job }: { job: Job }) {
       );
     case 'AWAITING_CONFIRMATION':
       return <CompletionPanel job={job} />;
-    case 'PAYMENT_PENDING':
-      return <PaymentPanel job={job} />;
     case 'COMPLETED':
       return (
         <>
@@ -201,14 +221,20 @@ function StagePanel({ job }: { job: Job }) {
 }
 
 /** What cancelling costs, which depends on how far the job has got. */
-function cancelWarning(job: Job) {
+function cancelWarning(job: Job, late: boolean) {
   switch (job.status) {
     case 'CALL_OUT_PAYMENT_PENDING':
       return "Nothing has been paid yet, so there's nothing to refund.";
-    case 'EN_ROUTE':
-      return 'Your fundi is already on the way, so the call-out fee will not be refunded.';
-    default:
+    case 'SEARCHING':
+    case 'OFFERED':
+    case 'ACCEPTED':
       return "Your fundi hasn't set off yet, so your call-out fee will be refunded in full.";
+    case 'EN_ROUTE':
+      return late
+        ? 'Your fundi is late, so your call-out fee will be refunded in full.'
+        : 'Your fundi is already on the way, so the call-out fee will not be refunded.';
+    default:
+      return 'Your fundi has already come out to you, so the call-out fee will not be refunded.';
   }
 }
 
@@ -290,6 +316,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.textGrey,
     maxWidth: 320,
+  },
+  lateBanner: {
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#FEF3C7',
+    gap: 4,
+  },
+  lateTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  lateText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textDark,
   },
   track: {
     height: 4,

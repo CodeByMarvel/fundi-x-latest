@@ -62,7 +62,7 @@ export function CompletionPanel({ job }: { job: Job }) {
       ) : (
         <View style={styles.actions}>
           <PrimaryButton
-            label="Everything's fine, continue to pay"
+            label="Everything's fine, release payment"
             onPress={() =>
               run('confirm', () => jobRepository.confirmCompletion(job.id))
             }
