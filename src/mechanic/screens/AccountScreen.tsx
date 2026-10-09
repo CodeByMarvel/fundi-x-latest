@@ -9,7 +9,7 @@ import {
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProvider } from '../../data/useJob';
-import { formatPhone } from '../../domain/payments/types';
+import { formatPhone } from '../../domain/billing/types';
 import { Avatar } from '../../shared/components/Avatar';
 import { SectionTitle } from '../../shared/components/SectionTitle';
 import {

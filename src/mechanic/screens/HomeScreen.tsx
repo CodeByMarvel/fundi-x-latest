@@ -9,7 +9,7 @@ import {
   useOfferForProvider,
   useProvider,
   useProviderCurrentJob,
-  useProviderJobs,
+  useProviderReleases,
 } from '../../data/useJob';
 import { formatKes } from '../../domain/money';
 import { HomeHeader } from '../../shared/components/HomeHeader';
@@ -22,7 +22,7 @@ import { JobOfferCard } from '../components/home/JobOfferCard';
 import { StatTile } from '../components/home/StatTile';
 import { OnlineToggle } from '../components/OnlineToggle';
 import { CURRENT_PROVIDER_ID, mechanicProfile } from '../data/mockMechanic';
-import { earningsFrom, isToday, sumPayouts } from '../earnings';
+import { isToday, sumNet } from '../earnings';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
 const me = CURRENT_PROVIDER_ID;
@@ -35,13 +35,13 @@ export function HomeScreen() {
   const provider = useProvider(me);
   const offer = useOfferForProvider(me);
   const currentJob = useProviderCurrentJob(me);
-  const myJobs = useProviderJobs(me);
+  const releases = useProviderReleases(me);
   const { pending, run } = useAsyncAction<'accept' | 'decline'>();
 
   const today = useMemo(() => {
-    const earnings = earningsFrom(myJobs).filter(e => isToday(e.paidAt));
-    return { payout: sumPayouts(earnings), jobs: earnings.length };
-  }, [myJobs]);
+    const todays = releases.filter(r => isToday(r.createdAt));
+    return { payout: sumNet(todays), jobs: todays.length };
+  }, [releases]);
 
   return (
     <ScrollView

@@ -6,7 +6,8 @@ import { MechanicTabs } from './MechanicTabs';
 export type MechanicStackParamList = {
   Tabs: undefined;
   MechanicJob: { jobId: string };
-  QuoteBuilder: { jobId: string };
+  /** base: the main repair quote. additional: extra work found on site. */
+  QuoteBuilder: { jobId: string; mode: 'base' | 'additional' };
 };
 
 const Stack = createNativeStackNavigator<MechanicStackParamList>();

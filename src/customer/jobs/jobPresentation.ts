@@ -1,5 +1,5 @@
-import { Job, JobStatus } from '../../domain/jobs/types';
-import { PaymentFailureReason } from '../../domain/payments/types';
+import { PaymentFailureReason } from '../../domain/billing/types';
+import { CancellationReason, Job, JobStatus } from '../../domain/jobs/types';
 import type { PillTone } from '../../shared/components/StatusPill';
 
 /**
@@ -21,6 +21,13 @@ export type CustomerStatusView = {
  * status, so a new status won't compile until it has wording here.
  */
 const CUSTOMER_STATUS: Record<JobStatus, CustomerStatusView> = {
+  CALL_OUT_PAYMENT_PENDING: {
+    title: 'Pay the call-out to book',
+    subtitle:
+      'The call-out covers your fundi’s trip and inspection. We start looking as soon as it’s paid.',
+    short: 'Call-out payment due',
+    tone: 'warning',
+  },
   SEARCHING: {
     title: 'Finding a trusted fundi near you',
     subtitle: "We're matching your request with available fundis nearby.",
@@ -47,21 +54,21 @@ const CUSTOMER_STATUS: Record<JobStatus, CustomerStatusView> = {
   },
   ARRIVED: {
     title: 'Your fundi has arrived',
-    subtitle: "They'll take a look at your vehicle first.",
+    subtitle: 'Please meet them at your vehicle.',
     short: 'Fundi has arrived',
     tone: 'active',
   },
   DIAGNOSING: {
     title: 'Inspecting your vehicle',
-    subtitle: "You'll get an estimate to approve before any work starts.",
+    subtitle: "You'll get an estimate to approve before any repair starts.",
     short: 'Inspecting your vehicle',
     tone: 'active',
   },
   QUOTE_SENT: {
-    title: 'Your service estimate is ready',
+    title: 'Your repair estimate is ready',
     subtitle: 'Review it and decide whether to go ahead.',
     short: 'Estimate ready',
-    tone: 'active',
+    tone: 'warning',
   },
   IN_PROGRESS: {
     title: 'Your vehicle is being worked on',
@@ -73,19 +80,13 @@ const CUSTOMER_STATUS: Record<JobStatus, CustomerStatusView> = {
     title: 'Your fundi has marked the job complete',
     subtitle: 'Check the work and confirm everything is fine.',
     short: 'Confirm the work',
-    tone: 'active',
+    tone: 'warning',
   },
   PAYMENT_PENDING: {
     title: 'Complete your payment',
-    subtitle: 'Pay with M-Pesa to finish the job.',
+    subtitle: 'Pay the rest with M-Pesa to finish the job.',
     short: 'Payment due',
-    tone: 'active',
-  },
-  PAID: {
-    title: 'Payment received',
-    subtitle: "Thanks! We're wrapping up your job.",
-    short: 'Paid',
-    tone: 'success',
+    tone: 'warning',
   },
   COMPLETED: {
     title: 'Service completed',
@@ -102,7 +103,7 @@ const CUSTOMER_STATUS: Record<JobStatus, CustomerStatusView> = {
   DISPUTED: {
     title: "We're looking into it",
     subtitle:
-      'Fundi-X support is reviewing your report and will contact you shortly.',
+      'Fundi-X support is reviewing your report. You won’t pay anything more until it’s sorted.',
     short: 'Under review',
     tone: 'warning',
   },
@@ -113,28 +114,33 @@ export function customerStatusView(status: JobStatus): CustomerStatusView {
 }
 
 const CANCELLATION_VIEW: Record<
-  NonNullable<Job['cancellation']>['reason'],
+  CancellationReason,
   Pick<CustomerStatusView, 'title' | 'subtitle'>
 > = {
+  call_out_unpaid: {
+    title: 'Booking expired',
+    subtitle: "The call-out wasn't paid within 30 minutes, so we closed it.",
+  },
   customer_cancelled: {
     title: 'You cancelled this request',
-    subtitle: "You haven't been charged. You can request help again any time.",
-  },
-  provider_cancelled: {
-    title: 'Your fundi had to cancel',
-    subtitle:
-      "Sorry about that. You haven't been charged. We can find you another fundi now.",
+    subtitle: 'You can request help again any time.',
   },
   no_provider_available: {
     title: 'No fundi was available',
     subtitle:
-      "Everyone nearby is busy right now. You haven't been charged. Please try again in a few minutes.",
+      'Everyone nearby is busy right now. Your call-out is refunded. Please try again in a few minutes.',
   },
-  quote_rejected: {
+  quote_declined: {
     title: 'You declined the estimate',
-    subtitle: 'There was nothing to pay, so this job is now closed.',
+    subtitle:
+      'No repair was done. The call-out covered your fundi’s visit and inspection.',
   },
-  dispute_resolved: {
+  customer_no_show: {
+    title: 'Your fundi couldn’t find you',
+    subtitle:
+      'They waited 15 minutes at the location. The call-out covered their trip.',
+  },
+  dispute_closed: {
     title: 'Job closed by support',
     subtitle: 'Fundi-X support closed this job after reviewing your report.',
   },
@@ -151,22 +157,27 @@ export function customerJobView(job: Job): CustomerStatusView {
   if (job.status === 'CANCELLED' && job.cancellation) {
     return { ...base, ...CANCELLATION_VIEW[job.cancellation.reason] };
   }
-  if (job.status === 'DIAGNOSING' && job.quoteId) {
+  if (
+    (job.status === 'SEARCHING' || job.status === 'OFFERED') &&
+    job.reassignment
+  ) {
+    return {
+      ...base,
+      title: 'Finding you another fundi',
+      subtitle:
+        'Your previous fundi had to withdraw. Your call-out is safe with Fundi-X while we find someone else.',
+      short: 'Finding another fundi',
+    };
+  }
+  if (job.status === 'ARRIVED' && job.pricingMode === 'FIXED') {
+    return { ...base, subtitle: "They'll start the service shortly." };
+  }
+  if (job.status === 'DIAGNOSING' && job.baseQuoteId) {
     return {
       ...base,
       title: 'Your fundi is updating the estimate',
       subtitle: "You'll get the new estimate to review in a moment.",
       short: 'Updating estimate',
-    };
-  }
-  if (
-    job.status === 'PAYMENT_PENDING' &&
-    job.chargeType === 'INSPECTION_ONLY'
-  ) {
-    return {
-      ...base,
-      subtitle:
-        'You declined the estimate, so you only pay the call-out and inspection fee.',
     };
   }
   if (job.status === 'IN_PROGRESS' && job.dispute?.resolution) {
@@ -195,6 +206,7 @@ export function paymentFailureText(reason?: PaymentFailureReason): string {
 
 /** The main road a job travels, used to draw progress. */
 const HAPPY_PATH: JobStatus[] = [
+  'CALL_OUT_PAYMENT_PENDING',
   'SEARCHING',
   'OFFERED',
   'ACCEPTED',
@@ -205,7 +217,6 @@ const HAPPY_PATH: JobStatus[] = [
   'IN_PROGRESS',
   'AWAITING_CONFIRMATION',
   'PAYMENT_PENDING',
-  'PAID',
   'COMPLETED',
 ];
 

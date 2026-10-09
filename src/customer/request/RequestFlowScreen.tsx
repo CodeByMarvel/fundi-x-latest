@@ -8,7 +8,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { jobRepository } from '../../data/backend';
+import { jobRepository, pricingService } from '../../data/backend';
+import {
+  PriceChangedError,
+  PriceEstimate,
+} from '../../domain/pricing/PricingService';
 import { colors } from '../../shared/theme/colors';
 import { mockVehicles } from '../data/mockVehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
@@ -16,7 +20,7 @@ import { RequestHeader } from './components/RequestHeader';
 import { QUESTIONS } from './data/questions';
 import {
   applyChange,
-  buildCreateJobInput,
+  buildJobDetails,
   getNextStep,
   getSteps,
   questionIdOf,
@@ -55,8 +59,32 @@ export function RequestFlowScreen({ navigation, route }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
 
+  const [estimate, setEstimate] = useState<PriceEstimate>();
+  const [estimateFailed, setEstimateFailed] = useState(false);
+  /** Bumped to ask for the price again. */
+  const [priceRequest, setPriceRequest] = useState(0);
+
   const step = history[history.length - 1];
   const vehicle = vehicles.find(v => v.id === draft.vehicleId);
+
+  // Ask Fundi-X for the price whenever the review step shows (or the request
+  // changed). `active` drops answers that arrive after the customer moved on,
+  // so a slow, outdated price can never overwrite a newer one.
+  useEffect(() => {
+    if (step !== 'review') {
+      return;
+    }
+    let active = true;
+    setEstimate(undefined);
+    setEstimateFailed(false);
+    pricingService
+      .estimate(buildJobDetails(draft, vehicle))
+      .then(result => active && setEstimate(result))
+      .catch(() => active && setEstimateFailed(true));
+    return () => {
+      active = false;
+    };
+  }, [step, draft, vehicle, priceRequest]);
 
   const goTo = (target: StepKey) => {
     // Revisiting a step (e.g. returning to review) rewinds history to it.
@@ -134,21 +162,36 @@ export function RequestFlowScreen({ navigation, route }: Props) {
   const submit = async () => {
     // A ref, not state: two taps in the same frame would both still read the
     // old `submitting` state, and we'd create the job twice.
-    if (submittingRef.current) {
+    if (submittingRef.current || !estimate) {
       return;
     }
     submittingRef.current = true;
     setSubmitting(true);
 
     try {
-      const job = await jobRepository.createJob(
-        buildCreateJobInput(draft, vehicle),
-      );
-      navigation.replace('RequestSubmitted', { jobId: job.id });
-    } catch {
+      // Send back the prices the customer saw, so the backend can refuse
+      // the booking if they've changed since.
+      const job = await jobRepository.createJob({
+        ...buildJobDetails(draft, vehicle),
+        acceptedPrice: {
+          callOut: estimate.callOut,
+          fixedServiceTotal: estimate.fixedService?.total,
+        },
+      });
+      // Next stop: paying the call-out, on the job's own screen.
+      navigation.replace('JobTracking', { jobId: job.id });
+    } catch (error) {
       submittingRef.current = false;
       setSubmitting(false);
-      Alert.alert("Couldn't send your request", 'Please try again.');
+      if (error instanceof PriceChangedError) {
+        setPriceRequest(n => n + 1);
+        Alert.alert(
+          'The price has been updated',
+          'Please check the new price before booking.',
+        );
+      } else {
+        Alert.alert("Couldn't book your request", 'Please try again.');
+      }
     }
   };
 
@@ -191,6 +234,9 @@ export function RequestFlowScreen({ navigation, route }: Props) {
             onEdit={onEdit}
             onSubmit={submit}
             submitting={submitting}
+            estimate={estimate}
+            estimateFailed={estimateFailed}
+            onRetryEstimate={() => setPriceRequest(n => n + 1)}
           />
         );
     }

@@ -1,7 +1,7 @@
-import { CreateJobInput, Job } from './types';
+import { Job, JobRequestDetails } from './types';
 
-/** The same request again, e.g. after a provider cancelled. */
-export function createInputFromJob(job: Job): CreateJobInput {
+/** The same request again, e.g. after nobody was available. */
+export function requestDetailsFromJob(job: Job): JobRequestDetails {
   return {
     requestType: job.requestType,
     categoryId: job.categoryId,

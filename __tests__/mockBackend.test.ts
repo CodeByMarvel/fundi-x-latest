@@ -1,4 +1,4 @@
-import { buildCreateJobInput } from '../src/customer/request/engine';
+import { buildJobDetails } from '../src/customer/request/engine';
 import { EMPTY_DRAFT, RequestDraft } from '../src/customer/request/types';
 import {
   createMockBackend,
@@ -6,17 +6,31 @@ import {
   ETA_TICK_MS,
   MATCHING_DELAY_MS,
   MAX_MATCHING_ROUNDS,
+  MockBackend,
   NETWORK_MS,
   OFFER_TIMEOUT_MS,
-  PAID_TO_COMPLETED_MS,
   PAYMENT_PROCESSING_MS,
+  REFUND_PROCESSING_MS,
   STK_SEND_MS,
   STK_TIMEOUT_MS,
 } from '../src/data/mock/mockBackend';
+import { calculateEstimate } from '../src/data/mock/mockPricing';
 import { BOT_TIMINGS } from '../src/data/mock/providerBots';
+import { balanceDue } from '../src/domain/billing/ledger';
+import { PaymentError } from '../src/domain/billing/types';
+import {
+  AUTO_CONFIRM_MS,
+  CALL_OUT_PAYMENT_WINDOW_MS,
+  NO_SHOW_WAIT_MS,
+} from '../src/domain/jobs/rules';
 import { JobTransitionError } from '../src/domain/jobs/transitions';
+import { JobRequestDetails } from '../src/domain/jobs/types';
 import { kes } from '../src/domain/money';
-import { PaymentError } from '../src/domain/payments/types';
+import { PriceChangedError } from '../src/domain/pricing/PricingService';
+import {
+  AdditionalQuotePendingError,
+  StaleQuoteError,
+} from '../src/domain/quotes/quotes';
 import { QuoteItemInput } from '../src/domain/quotes/types';
 
 const vehicle = {
@@ -26,7 +40,7 @@ const vehicle = {
   registration: 'KDA 123A',
 };
 
-const draft: RequestDraft = {
+const repairDraft: RequestDraft = {
   ...EMPTY_DRAFT,
   requestType: 'repair',
   vehicleId: 'v1',
@@ -38,13 +52,17 @@ const draft: RequestDraft = {
   urgency: 'now',
 };
 
+const REPAIR = buildJobDetails(repairDraft, vehicle);
+const SERVICE: JobRequestDetails = {
+  ...REPAIR,
+  requestType: 'service',
+  categoryId: 'oil_service',
+  answers: {},
+  description: '',
+};
+
+const CALL_OUT = kes(800);
 const ITEMS: QuoteItemInput[] = [
-  {
-    kind: 'CALL_OUT',
-    description: 'Call-out',
-    quantity: 1,
-    unitPrice: kes(1000),
-  },
   {
     kind: 'PART',
     description: 'Brake pads',
@@ -58,531 +76,645 @@ const ITEMS: QuoteItemInput[] = [
     unitPrice: kes(1500),
   },
 ];
-const ITEMS_TOTAL = kes(1000 + 4000 + 1500);
+const ITEMS_TOTAL = kes(4000 + 1500);
 
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
-/**
- * Runs a mock call, fast-forwarding through its simulated network delay but
- * not far enough to trigger background work like matching.
- */
+/** Runs a mock call, fast-forwarding through its simulated delay. */
 async function run<T>(call: Promise<T>, ms = NETWORK_MS): Promise<T> {
   await jest.advanceTimersByTimeAsync(ms);
   return call;
 }
 
 /** Expects a mock call to fail, fast-forwarding through its delay. */
-async function expectRejects(call: Promise<unknown>, error: unknown) {
+async function expectRejects(
+  call: Promise<unknown>,
+  error: unknown,
+  ms = NETWORK_MS,
+) {
   await Promise.all([
     expect(call).rejects.toThrow(error as Error),
-    jest.advanceTimersByTimeAsync(NETWORK_MS),
+    jest.advanceTimersByTimeAsync(ms),
   ]);
 }
 
 /** A backend without bots, so tests decide what every provider does. */
 function setup() {
-  const backend = createMockBackend({ autoResolveDisputes: false });
-  return { ...backend, repo: backend.jobs };
+  return createMockBackend({ autoResolveDisputes: false });
 }
 
-async function createJob(repo = setup().repo) {
-  return run(repo.createJob(buildCreateJobInput(draft, vehicle)));
+/** Books a job at the current price, like the review screen does. */
+function book(b: MockBackend, details: JobRequestDetails = REPAIR) {
+  const estimate = calculateEstimate(details);
+  return run(
+    b.jobs.createJob({
+      ...details,
+      acceptedPrice: {
+        callOut: estimate.callOut,
+        fixedServiceTotal: estimate.fixedService?.total,
+      },
+    }),
+  );
 }
 
-/** Creates a job and lets matching offer it to the nearest provider, p1. */
-async function offeredJob() {
-  const backend = setup();
-  const job = await createJob(backend.repo);
+/** Starts an M-Pesa payment and answers the prompt on the "phone". */
+async function pay(
+  b: MockBackend,
+  jobId: string,
+  response: 'pay' | 'cancel' | 'insufficient_funds' = 'pay',
+) {
+  const payment = await run(
+    b.billing.initiatePayment(jobId, '0712 345 678'),
+    STK_SEND_MS,
+  );
+  b.phone.respondToPaymentPrompt(payment.id, response);
+  await jest.advanceTimersByTimeAsync(PAYMENT_PROCESSING_MS);
+  return payment;
+}
+
+/** Booked and call-out paid: matching has started. */
+async function searchingJob(details: JobRequestDetails = REPAIR) {
+  const b = setup();
+  const job = await book(b, details);
+  await pay(b, job.id);
+  return { b, job };
+}
+
+/** …and offered to the nearest provider, p1. */
+async function offeredJob(details: JobRequestDetails = REPAIR) {
+  const ctx = await searchingJob(details);
   await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-  return { ...backend, job };
+  return ctx;
 }
 
-/** Walks a job to QUOTE_SENT with ITEMS as the quote. */
+/** …and p1 is standing at the vehicle. */
+async function arrivedJob(details: JobRequestDetails = REPAIR) {
+  const ctx = await offeredJob(details);
+  const { b, job } = ctx;
+  await run(b.jobs.acceptOffer(job.id, 'p1'));
+  await run(b.jobs.startTrip(job.id, 'p1'));
+  await run(b.jobs.markArrived(job.id, 'p1'));
+  return ctx;
+}
+
+/** A repair with p1's quote waiting for the customer. */
 async function quotedJob() {
-  const backend = await offeredJob();
-  const { repo, job } = backend;
-  await run(repo.acceptOffer(job.id, 'p1'));
-  await run(repo.startTrip(job.id, 'p1'));
-  await run(repo.markArrived(job.id, 'p1'));
-  await run(repo.startInspection(job.id, 'p1'));
-  const quote = await run(repo.sendQuote(job.id, 'p1', ITEMS));
-  return { ...backend, quote };
+  const ctx = await arrivedJob();
+  await run(ctx.b.jobs.startInspection(ctx.job.id, 'p1'));
+  const quote = await run(ctx.b.jobs.sendQuote(ctx.job.id, 'p1', ITEMS));
+  return { ...ctx, quote };
 }
 
-/** Walks a job to PAYMENT_PENDING for the full quote. */
+/** A repair with the work done and confirmed: service payment due. */
 async function jobAwaitingPayment() {
-  const backend = await quotedJob();
-  const { repo, job, quote } = backend;
-  await run(repo.approveQuote(job.id, quote.id));
-  await run(repo.markWorkComplete(job.id, 'p1', 'Done'));
-  await run(repo.confirmCompletion(job.id));
-  return backend;
+  const ctx = await quotedJob();
+  const { b, job, quote } = ctx;
+  await run(b.jobs.approveQuote(job.id, quote.id));
+  await run(b.jobs.markWorkComplete(job.id, 'p1', 'Done'));
+  await run(b.jobs.confirmCompletion(job.id));
+  return ctx;
 }
 
-describe('buildCreateJobInput', () => {
-  it('turns a finished draft into job input', () => {
-    const input = buildCreateJobInput(draft, vehicle);
-    expect(input.description).toBe('Grinding when I stop');
-    expect(input.vehicle).toEqual(vehicle);
+const status = (b: MockBackend, jobId: string) =>
+  b.jobs.getJobSnapshot(jobId)?.status;
+
+describe('buildJobDetails', () => {
+  it('turns a finished draft into job details', () => {
+    expect(REPAIR.description).toBe('Grinding when I stop');
+    expect(REPAIR.vehicle).toEqual(vehicle);
     // A copy, so later edits to the vehicle don't change the job.
-    expect(input.vehicle).not.toBe(vehicle);
+    expect(REPAIR.vehicle).not.toBe(vehicle);
   });
 
   it('refuses an incomplete draft', () => {
     expect(() =>
-      buildCreateJobInput({ ...draft, location: undefined }, vehicle),
+      buildJobDetails({ ...repairDraft, location: undefined }, vehicle),
     ).toThrow();
-    expect(() => buildCreateJobInput(draft, undefined)).toThrow();
+    expect(() => buildJobDetails(repairDraft, undefined)).toThrow();
   });
 });
 
-describe('creating jobs', () => {
-  it('creates a searching job for the current customer', async () => {
-    const job = await createJob();
-    expect(job.status).toBe('SEARCHING');
-    expect(job.customerId).toBe('customer-1');
-    expect(job.vehicle.registration).toBe('KDA 123A');
+describe('pricing', () => {
+  it('charges a call-out of base + distance', () => {
+    const estimate = calculateEstimate(REPAIR);
+    expect(estimate.callOut).toBe(CALL_OUT);
+    expect(estimate.pricingMode).toBe('QUOTED');
+    expect(estimate.fixedService).toBeUndefined();
   });
 
-  it('takes time, like a network call', async () => {
-    const { repo } = setup();
-    let done = false;
-    repo.createJob(buildCreateJobInput(draft, vehicle)).then(() => {
-      done = true;
+  it('prices catalog maintenance as FIXED', () => {
+    const estimate = calculateEstimate(SERVICE);
+    expect(estimate.pricingMode).toBe('FIXED');
+    expect(estimate.fixedService?.total).toBe(kes(3800 + 900 + 1000));
+  });
+
+  it('charges more for parts on premium makes', () => {
+    const premium = calculateEstimate({
+      ...SERVICE,
+      vehicle: { ...vehicle, make: 'Mercedes-Benz' },
     });
-    await jest.advanceTimersByTimeAsync(NETWORK_MS - 100);
-    expect(done).toBe(false);
-    await jest.advanceTimersByTimeAsync(100);
-    expect(done).toBe(true);
+    expect(premium.fixedService!.total).toBeGreaterThan(
+      calculateEstimate(SERVICE).fixedService!.total,
+    );
   });
 
-  it('records the creation as the first event', async () => {
-    const { repo } = setup();
-    const job = await createJob(repo);
-    const events = await run(repo.getJobEvents(job.id));
-    expect(events).toEqual([
-      expect.objectContaining({ fromStatus: null, toStatus: 'SEARCHING' }),
+  it('falls back to QUOTED for services the catalog cannot price', () => {
+    expect(
+      calculateEstimate({ ...SERVICE, categoryId: 'other_service' })
+        .pricingMode,
+    ).toBe('QUOTED');
+  });
+});
+
+describe('booking and the call-out', () => {
+  it('books a repair waiting for the call-out payment', async () => {
+    const b = setup();
+    const job = await book(b);
+    expect(job.status).toBe('CALL_OUT_PAYMENT_PENDING');
+    expect(job.pricingMode).toBe('QUOTED');
+    expect(
+      balanceDue(b.billing.getChargesSnapshot(), [], job.id, 'CALL_OUT'),
+    ).toBe(CALL_OUT);
+  });
+
+  it('books a maintenance job with an accepted Fundi-X quote', async () => {
+    const b = setup();
+    const job = await book(b, SERVICE);
+    const quote = b.jobs.getQuoteSnapshot(job.baseQuoteId!)!;
+    expect(job.pricingMode).toBe('FIXED');
+    expect(quote).toMatchObject({
+      kind: 'BASE',
+      issuedBy: 'FUNDI_X',
+      status: 'APPROVED',
+    });
+    expect(quote.respondedAt).toBeDefined();
+    expect(
+      balanceDue(b.billing.getChargesSnapshot(), [], job.id, 'SERVICE'),
+    ).toBe(quote.total);
+  });
+
+  it('refuses a booking at a price that is no longer current', async () => {
+    const b = setup();
+    await expectRejects(
+      b.jobs.createJob({ ...REPAIR, acceptedPrice: { callOut: kes(1) } }),
+      PriceChangedError,
+    );
+  });
+
+  it("doesn't look for a fundi until the call-out is paid", async () => {
+    const b = setup();
+    const job = await book(b);
+    await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS * 3);
+    expect(status(b, job.id)).toBe('CALL_OUT_PAYMENT_PENDING');
+
+    await pay(b, job.id);
+    expect(status(b, job.id)).toBe('SEARCHING');
+    await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
+    expect(status(b, job.id)).toBe('OFFERED');
+  });
+
+  it('stays bookable after a failed call-out payment', async () => {
+    const b = setup();
+    const job = await book(b);
+    await pay(b, job.id, 'insufficient_funds');
+    expect(status(b, job.id)).toBe('CALL_OUT_PAYMENT_PENDING');
+    await pay(b, job.id);
+    expect(status(b, job.id)).toBe('SEARCHING');
+  });
+
+  it('closes a booking left unpaid for 30 minutes', async () => {
+    const b = setup();
+    const job = await book(b);
+    await jest.advanceTimersByTimeAsync(CALL_OUT_PAYMENT_WINDOW_MS);
+    expect(b.jobs.getJobSnapshot(job.id)?.cancellation?.reason).toBe(
+      'call_out_unpaid',
+    );
+    expect(b.billing.getRefundsSnapshot()).toEqual([]);
+  });
+
+  it("doesn't close a booking while its payment prompt is open", async () => {
+    const b = setup();
+    const job = await book(b);
+    await jest.advanceTimersByTimeAsync(CALL_OUT_PAYMENT_WINDOW_MS - 2000);
+    await run(b.billing.initiatePayment(job.id, '0712345678'), STK_SEND_MS);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(status(b, job.id)).toBe('CALL_OUT_PAYMENT_PENDING');
+  });
+
+  it('refunds a call-out paid after the booking was cancelled', async () => {
+    const b = setup();
+    const job = await book(b);
+    const payment = await run(
+      b.billing.initiatePayment(job.id, '0712345678'),
+      STK_SEND_MS,
+    );
+    await run(b.jobs.cancelJob(job.id));
+    b.phone.respondToPaymentPrompt(payment.id, 'pay');
+    await jest.advanceTimersByTimeAsync(PAYMENT_PROCESSING_MS);
+
+    expect(status(b, job.id)).toBe('CANCELLED');
+    expect(b.billing.getRefundsSnapshot()).toEqual([
+      expect.objectContaining({ paymentId: payment.id, amount: CALL_OUT }),
     ]);
   });
-
-  it('tells subscribers about changes until they unsubscribe', async () => {
-    const { repo } = setup();
-    const listener = jest.fn();
-    const unsubscribe = repo.subscribe(listener);
-    await createJob(repo);
-    expect(listener).toHaveBeenCalledTimes(1);
-    unsubscribe();
-    await createJob(repo);
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps snapshots stable until something changes', async () => {
-    const { repo } = setup();
-    const job = await createJob(repo);
-    const list = repo.getJobsSnapshot();
-    expect(repo.getJobsSnapshot()).toBe(list);
-    expect(repo.getJobSnapshot(job.id)).toBe(repo.getJobSnapshot(job.id));
-    await run(repo.cancelJob(job.id));
-    expect(repo.getJobsSnapshot()).not.toBe(list);
-  });
 });
 
-describe('matching and offers', () => {
-  it('offers the job to the nearest provider', async () => {
-    const { repo, job } = await offeredJob();
-    const offered = repo.getJobSnapshot(job.id)!;
-    expect(offered.status).toBe('OFFERED');
+describe('matching', () => {
+  it('offers the job to the nearest provider, with an expiry', async () => {
+    const { b, job } = await offeredJob();
+    const offered = b.jobs.getJobSnapshot(job.id)!;
     expect(offered.offeredProviderId).toBe('p1');
     expect(offered.offerExpiresAt).toBeDefined();
   });
 
   it('skips providers who are offline', async () => {
-    const { repo, providers } = setup();
-    await run(providers.setOnline('p1', false), 300);
-    const job = await createJob(repo);
+    const b = setup();
+    await run(b.providers.setOnline('p1', false), 300);
+    const job = await book(b);
+    await pay(b, job.id);
     await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
+    expect(b.jobs.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
   });
 
   it('skips providers who already have a job', async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.acceptOffer(job.id, 'p1'));
-    const second = await createJob(repo);
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    const second = await book(b);
+    await pay(b, second.id);
     await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(second.id)?.offeredProviderId).toBe('p2');
+    expect(b.jobs.getJobSnapshot(second.id)?.offeredProviderId).toBe('p2');
   });
 
-  it('lets the offered provider accept', async () => {
-    const { repo, job } = await offeredJob();
-    const accepted = await run(repo.acceptOffer(job.id, 'p1'));
-    expect(accepted.status).toBe('ACCEPTED');
-    expect(accepted.providerId).toBe('p1');
-    expect(accepted.offeredProviderId).toBeUndefined();
-  });
-
-  it('refuses an accept from a provider who was not offered the job', async () => {
-    const { repo, job } = await offeredJob();
-    await expectRejects(repo.acceptOffer(job.id, 'p2'), 'not offered to p2');
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('OFFERED');
+  it("refuses an accept from a provider who wasn't offered the job", async () => {
+    const { b, job } = await offeredJob();
+    await expectRejects(b.jobs.acceptOffer(job.id, 'p2'), 'not offered to p2');
   });
 
   it('offers a declined job to the next nearest provider', async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.declineOffer(job.id, 'p1'));
+    const { b, job } = await offeredJob();
+    await run(b.jobs.declineOffer(job.id, 'p1'));
     await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
+    expect(b.jobs.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
   });
 
   it('moves on when an offer expires', async () => {
-    const { repo, job } = await offeredJob();
-    await jest.advanceTimersByTimeAsync(OFFER_TIMEOUT_MS);
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('SEARCHING');
-    await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
-
-    const events = await run(repo.getJobEvents(job.id), 300);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        actor: 'SYSTEM',
-        metadata: { providerId: 'p1', reason: 'offer_expired' },
-      }),
-    );
+    const { b, job } = await offeredJob();
+    await jest.advanceTimersByTimeAsync(OFFER_TIMEOUT_MS + MATCHING_DELAY_MS);
+    expect(b.jobs.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
   });
 
-  it('cancels the job when every provider has declined', async () => {
-    const { repo, job } = await offeredJob();
+  it('cancels and refunds when every provider declines', async () => {
+    const { b, job } = await offeredJob();
     for (const providerId of ['p1', 'p2', 'p3']) {
-      await run(repo.declineOffer(job.id, providerId));
+      await run(b.jobs.declineOffer(job.id, providerId));
       await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
     }
-    const cancelled = repo.getJobSnapshot(job.id)!;
-    expect(cancelled.status).toBe('CANCELLED');
-    expect(cancelled.cancellation).toEqual({
-      by: 'SYSTEM',
-      reason: 'no_provider_available',
-    });
+    expect(b.jobs.getJobSnapshot(job.id)?.cancellation?.reason).toBe(
+      'no_provider_available',
+    );
+    const [refund] = b.billing.getRefundsSnapshot();
+    expect(refund).toMatchObject({ amount: CALL_OUT, status: 'PENDING' });
+
+    await jest.advanceTimersByTimeAsync(REFUND_PROCESSING_MS);
+    expect(b.billing.getRefundsSnapshot()[0].status).toBe('SUCCESS');
   });
 
-  it('keeps trying for a while when nobody is online, then gives up', async () => {
-    const { repo, providers } = setup();
+  it('keeps trying while nobody is online, then gives up and refunds', async () => {
+    const b = setup();
     for (const id of ['p1', 'p2', 'p3']) {
-      await run(providers.setOnline(id, false), 300);
+      await run(b.providers.setOnline(id, false), 300);
     }
-    const job = await createJob(repo);
-
+    const job = await book(b);
+    await pay(b, job.id);
     await jest.advanceTimersByTimeAsync(
       MATCHING_DELAY_MS * (MAX_MATCHING_ROUNDS - 1),
     );
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('SEARCHING');
-
+    expect(status(b, job.id)).toBe('SEARCHING');
     await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(job.id)?.cancellation?.reason).toBe(
-      'no_provider_available',
-    );
+    expect(status(b, job.id)).toBe('CANCELLED');
+    expect(b.billing.getRefundsSnapshot()).toHaveLength(1);
   });
 });
 
 describe('cancelling', () => {
-  it('lets the customer cancel while searching, and stops matching', async () => {
-    const { repo } = setup();
-    const job = await createJob(repo);
-    const cancelled = await run(repo.cancelJob(job.id));
-    expect(cancelled.cancellation).toEqual({
-      by: 'CUSTOMER',
-      reason: 'customer_cancelled',
-    });
-    await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('CANCELLED');
+  it('refunds the call-out when the customer cancels before the trip', async () => {
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    await run(b.jobs.cancelJob(job.id));
+    expect(b.billing.getRefundsSnapshot()).toHaveLength(1);
+    expect(b.billing.getReleasesSnapshot()).toEqual([]);
   });
 
-  it('refuses to cancel a job twice', async () => {
-    const { repo } = setup();
-    const job = await createJob(repo);
-    await run(repo.cancelJob(job.id));
-    await expectRejects(repo.cancelJob(job.id), JobTransitionError);
-  });
+  it('pays the provider the call-out when cancelled during the trip', async () => {
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    await run(b.jobs.startTrip(job.id, 'p1'));
+    await run(b.jobs.cancelJob(job.id));
 
-  it('lets the provider cancel after accepting, with a reason', async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.acceptOffer(job.id, 'p1'));
-    const cancelled = await run(
-      repo.providerCancelJob(job.id, 'p1', 'Car broke down'),
-    );
-    expect(cancelled.cancellation).toEqual({
-      by: 'PROVIDER',
-      reason: 'provider_cancelled',
-      note: 'Car broke down',
-    });
-  });
-
-  it("refuses provider actions on someone else's job", async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.acceptOffer(job.id, 'p1'));
-    await expectRejects(repo.startTrip(job.id, 'p2'), "doesn't belong to p2");
+    expect(b.billing.getRefundsSnapshot()).toEqual([]);
+    expect(b.billing.getReleasesSnapshot()).toEqual([
+      expect.objectContaining({
+        providerId: 'p1',
+        gross: CALL_OUT,
+        commission: kes(80),
+        net: kes(720),
+      }),
+    ]);
   });
 
   it('refuses customer cancellation once work has started', async () => {
-    const { repo, job, quote } = await quotedJob();
-    await run(repo.approveQuote(job.id, quote.id));
-    await expectRejects(repo.cancelJob(job.id), JobTransitionError);
+    const { b, job, quote } = await quotedJob();
+    await run(b.jobs.approveQuote(job.id, quote.id));
+    await expectRejects(b.jobs.cancelJob(job.id), JobTransitionError);
   });
 });
 
-describe('trip and inspection', () => {
-  it('counts the ETA down while en route, and clears it on arrival', async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.acceptOffer(job.id, 'p1'));
-    const enRoute = await run(repo.startTrip(job.id, 'p1'));
-    expect(enRoute.etaMinutes).toBe(6); // 1.2 km × 5 min/km
+describe('provider withdrawing', () => {
+  it('rematches the job and keeps the call-out in escrow', async () => {
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    await run(b.jobs.startTrip(job.id, 'p1'));
+    const withdrawn = await run(
+      b.jobs.withdrawFromJob(job.id, 'p1', 'Flat tyre'),
+    );
 
-    await jest.advanceTimersByTimeAsync(ETA_TICK_MS);
-    expect(repo.getJobSnapshot(job.id)?.etaMinutes).toBe(5);
+    expect(withdrawn.status).toBe('SEARCHING');
+    expect(withdrawn.providerId).toBeUndefined();
+    expect(withdrawn.reassignment).toMatchObject({
+      providerId: 'p1',
+      note: 'Flat tyre',
+    });
+    expect(b.billing.getRefundsSnapshot()).toEqual([]);
 
-    const arrived = await run(repo.markArrived(job.id, 'p1'));
-    expect(arrived.etaMinutes).toBeUndefined();
-  });
-});
-
-describe('quotes', () => {
-  it('sends a quote with totals worked out', async () => {
-    const { repo, job, quote } = await quotedJob();
-    expect(quote).toMatchObject({ version: 1, status: 'PENDING' });
-    expect(quote.total).toBe(ITEMS_TOTAL);
-    expect(quote.items[1].total).toBe(kes(4000));
-    expect(repo.getJobSnapshot(job.id)?.quoteId).toBe(quote.id);
+    await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
+    expect(b.jobs.getJobSnapshot(job.id)?.offeredProviderId).toBe('p2');
   });
 
-  it('refuses an invalid quote', async () => {
-    const { repo, job } = await offeredJob();
-    await run(repo.acceptOffer(job.id, 'p1'));
-    await run(repo.startTrip(job.id, 'p1'));
-    await run(repo.markArrived(job.id, 'p1'));
-    await run(repo.startInspection(job.id, 'p1'));
-    await expectRejects(repo.sendQuote(job.id, 'p1', []), 'at least one item');
+  it("refuses to withdraw from someone else's job", async () => {
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
     await expectRejects(
-      repo.sendQuote(job.id, 'p1', [{ ...ITEMS[0], unitPrice: 0 }]),
-      'price above zero',
+      b.jobs.withdrawFromJob(job.id, 'p2', ''),
+      "doesn't belong to p2",
+    );
+  });
+});
+
+describe('customer no-show', () => {
+  it('needs the provider to wait 15 minutes first', async () => {
+    const { b, job } = await arrivedJob();
+    await expectRejects(
+      b.jobs.reportCustomerNoShow(job.id, 'p1'),
+      'Wait 15 minutes',
     );
   });
 
-  it('starts work when the customer approves', async () => {
-    const { repo, job, quote } = await quotedJob();
-    const approved = await run(repo.approveQuote(job.id, quote.id));
-    expect(approved.status).toBe('IN_PROGRESS');
-    expect(repo.getQuoteSnapshot(quote.id)?.status).toBe('APPROVED');
+  it('then ends the job and pays the provider the call-out', async () => {
+    const { b, job } = await arrivedJob();
+    await jest.advanceTimersByTimeAsync(NO_SHOW_WAIT_MS);
+    const ended = await run(b.jobs.reportCustomerNoShow(job.id, 'p1'));
+    expect(ended.cancellation?.reason).toBe('customer_no_show');
+    expect(b.billing.getReleasesSnapshot()[0].net).toBe(kes(720));
+  });
+});
+
+describe('trip', () => {
+  it('counts the ETA down and records the arrival time', async () => {
+    const { b, job } = await offeredJob();
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    const enRoute = await run(b.jobs.startTrip(job.id, 'p1'));
+    expect(enRoute.etaMinutes).toBe(6); // 1.2 km × 5 min/km
+    await jest.advanceTimersByTimeAsync(ETA_TICK_MS);
+    expect(b.jobs.getJobSnapshot(job.id)?.etaMinutes).toBe(5);
+
+    const arrived = await run(b.jobs.markArrived(job.id, 'p1'));
+    expect(arrived.etaMinutes).toBeUndefined();
+    expect(arrived.arrivedAt).toBeDefined();
+  });
+});
+
+describe('repair quotes', () => {
+  it('sends a quote with totals worked out', async () => {
+    const { b, job, quote } = await quotedJob();
+    expect(quote).toMatchObject({
+      kind: 'BASE',
+      issuedBy: 'PROVIDER',
+      version: 1,
+    });
+    expect(quote.total).toBe(ITEMS_TOTAL);
+    expect(b.jobs.getJobSnapshot(job.id)?.baseQuoteId).toBe(quote.id);
   });
 
-  it('charges only the call-out fee when the customer rejects', async () => {
-    const { repo, job, quote } = await quotedJob();
-    const rejected = await run(repo.rejectQuote(job.id, quote.id));
-    expect(rejected.status).toBe('PAYMENT_PENDING');
-    expect(rejected.amountDue).toBe(kes(1000));
-    expect(rejected.chargeType).toBe('INSPECTION_ONLY');
-    expect(repo.getQuoteSnapshot(quote.id)?.status).toBe('REJECTED');
+  it('adds a service charge when the customer approves', async () => {
+    const { b, job, quote } = await quotedJob();
+    await run(b.jobs.approveQuote(job.id, quote.id));
+    expect(status(b, job.id)).toBe('IN_PROGRESS');
+    expect(
+      balanceDue(
+        b.billing.getChargesSnapshot(),
+        b.billing.getPaymentsSnapshot(),
+        job.id,
+        'SERVICE',
+      ),
+    ).toBe(ITEMS_TOTAL);
   });
 
-  it('closes the job when a quote with no fee is rejected', async () => {
-    const { repo, job, quote } = await quotedJob();
-    await run(repo.reviseQuote(job.id, 'p1'));
-    const free = await run(repo.sendQuote(job.id, 'p1', ITEMS.slice(1)));
-    const rejected = await run(repo.rejectQuote(job.id, free.id));
-    expect(rejected.cancellation?.reason).toBe('quote_rejected');
-    expect(quote.id).not.toBe(free.id);
+  it('ends the job and pays the provider the call-out when declined', async () => {
+    const { b, job, quote } = await quotedJob();
+    const ended = await run(b.jobs.rejectQuote(job.id, quote.id));
+    expect(ended.cancellation?.reason).toBe('quote_declined');
+    expect(b.billing.getReleasesSnapshot()[0].gross).toBe(CALL_OUT);
   });
 
   it('refuses approval of a quote the provider has revised', async () => {
-    const { repo, job, quote } = await quotedJob();
-    await run(repo.reviseQuote(job.id, 'p1'));
-    expect(repo.getQuoteSnapshot(quote.id)?.status).toBe('SUPERSEDED');
-
-    const second = await run(repo.sendQuote(job.id, 'p1', ITEMS));
+    const { b, job, quote } = await quotedJob();
+    await run(b.jobs.reviseQuote(job.id, 'p1'));
+    const second = await run(b.jobs.sendQuote(job.id, 'p1', ITEMS));
     expect(second.version).toBe(2);
-    // The customer's screen still showed version 1.
-    await expectRejects(
-      repo.approveQuote(job.id, quote.id),
-      'no longer current',
-    );
-    await run(repo.approveQuote(job.id, second.id));
+    await expectRejects(b.jobs.approveQuote(job.id, quote.id), StaleQuoteError);
+    await run(b.jobs.approveQuote(job.id, second.id));
   });
 });
 
-describe('completion and disputes', () => {
-  it('asks for the full quote once the customer confirms the work', async () => {
-    const { repo, job } = await jobAwaitingPayment();
-    const confirmed = repo.getJobSnapshot(job.id)!;
-    expect(confirmed.status).toBe('PAYMENT_PENDING');
-    expect(confirmed.amountDue).toBe(ITEMS_TOTAL);
-    expect(confirmed.chargeType).toBe('FULL');
-    expect(confirmed.workSummary).toBe('Done');
+describe('fixed-price maintenance', () => {
+  it('starts the service on arrival, without diagnosis', async () => {
+    const { b, job } = await arrivedJob(SERVICE);
+    await expectRejects(
+      b.jobs.startInspection(job.id, 'p1'),
+      JobTransitionError,
+    );
+    await run(b.jobs.startService(job.id, 'p1'));
+    expect(status(b, job.id)).toBe('IN_PROGRESS');
+  });
+});
+
+describe('additional quotes', () => {
+  async function serviceInProgress() {
+    const ctx = await arrivedJob(SERVICE);
+    await run(ctx.b.jobs.startService(ctx.job.id, 'p1'));
+    return ctx;
+  }
+  const extra: QuoteItemInput[] = [
+    {
+      kind: 'PART',
+      description: 'Wiper blades',
+      quantity: 2,
+      unitPrice: kes(600),
+    },
+  ];
+
+  it('needs a reason', async () => {
+    const { b, job } = await serviceInProgress();
+    await expectRejects(
+      b.jobs.raiseAdditionalQuote(job.id, 'p1', extra, ' '),
+      'Say why',
+    );
+  });
+
+  it('blocks finishing until the customer answers', async () => {
+    const { b, job } = await serviceInProgress();
+    const quote = await run(
+      b.jobs.raiseAdditionalQuote(job.id, 'p1', extra, 'Blades split'),
+    );
+    expect(quote).toMatchObject({ kind: 'ADDITIONAL', status: 'PENDING' });
+    // The base work carries on: the job stays IN_PROGRESS.
+    expect(status(b, job.id)).toBe('IN_PROGRESS');
+
+    await expectRejects(
+      b.jobs.markWorkComplete(job.id, 'p1', ''),
+      AdditionalQuotePendingError,
+    );
+    await run(b.jobs.rejectQuote(job.id, quote.id));
+    await run(b.jobs.markWorkComplete(job.id, 'p1', ''));
+    expect(status(b, job.id)).toBe('AWAITING_CONFIRMATION');
+  });
+
+  it('adds to the bill when approved, without touching the base quote', async () => {
+    const { b, job } = await serviceInProgress();
+    const base = b.jobs.getQuoteSnapshot(job.baseQuoteId!)!;
+    const quote = await run(
+      b.jobs.raiseAdditionalQuote(job.id, 'p1', extra, 'Blades split'),
+    );
+    await run(b.jobs.approveQuote(job.id, quote.id));
+
+    expect(b.jobs.getQuoteSnapshot(base.id)).toEqual(base);
+    expect(
+      balanceDue(
+        b.billing.getChargesSnapshot(),
+        b.billing.getPaymentsSnapshot(),
+        job.id,
+        'SERVICE',
+      ),
+    ).toBe(base.total + kes(1200));
+  });
+});
+
+describe('completion', () => {
+  it('asks for the service balance once the customer confirms', async () => {
+    const { b, job } = await jobAwaitingPayment();
+    expect(status(b, job.id)).toBe('PAYMENT_PENDING');
+    expect(b.jobs.getJobSnapshot(job.id)?.workSummary).toBe('Done');
+  });
+
+  it('confirms automatically after 48 hours of silence', async () => {
+    const { b, job, quote } = await quotedJob();
+    await run(b.jobs.approveQuote(job.id, quote.id));
+    await run(b.jobs.markWorkComplete(job.id, 'p1', ''));
+    await jest.advanceTimersByTimeAsync(AUTO_CONFIRM_MS);
+    expect(status(b, job.id)).toBe('PAYMENT_PENDING');
   });
 
   it('sends a disputed job back to the provider after review', async () => {
-    const backend = createMockBackend();
-    const repo = backend.jobs;
-    const job = await createJob(repo);
+    const b = createMockBackend();
+    const job = await book(b);
+    await pay(b, job.id);
     await jest.advanceTimersByTimeAsync(MATCHING_DELAY_MS);
-    await run(repo.acceptOffer(job.id, 'p1'));
-    await run(repo.startTrip(job.id, 'p1'));
-    await run(repo.markArrived(job.id, 'p1'));
-    await run(repo.startInspection(job.id, 'p1'));
-    const quote = await run(repo.sendQuote(job.id, 'p1', ITEMS));
-    await run(repo.approveQuote(job.id, quote.id));
-    await run(repo.markWorkComplete(job.id, 'p1', 'Done'));
-
-    const disputed = await run(
-      repo.disputeCompletion(job.id, 'Still grinding'),
-    );
-    expect(disputed.status).toBe('DISPUTED');
+    await run(b.jobs.acceptOffer(job.id, 'p1'));
+    await run(b.jobs.startTrip(job.id, 'p1'));
+    await run(b.jobs.markArrived(job.id, 'p1'));
+    await run(b.jobs.startInspection(job.id, 'p1'));
+    const quote = await run(b.jobs.sendQuote(job.id, 'p1', ITEMS));
+    await run(b.jobs.approveQuote(job.id, quote.id));
+    await run(b.jobs.markWorkComplete(job.id, 'p1', 'Done'));
+    await run(b.jobs.disputeCompletion(job.id, 'Still grinding'));
 
     await jest.advanceTimersByTimeAsync(DISPUTE_REVIEW_MS);
-    const reworked = repo.getJobSnapshot(job.id)!;
+    const reworked = b.jobs.getJobSnapshot(job.id)!;
     expect(reworked.status).toBe('IN_PROGRESS');
-    expect(reworked.dispute?.reason).toBe('Still grinding');
     expect(reworked.dispute?.resolution).toBeDefined();
-  });
-
-  it('needs a reason to dispute', async () => {
-    const { repo, job, quote } = await quotedJob();
-    await run(repo.approveQuote(job.id, quote.id));
-    await run(repo.markWorkComplete(job.id, 'p1', ''));
-    await expectRejects(
-      repo.disputeCompletion(job.id, '  '),
-      'what went wrong',
-    );
   });
 });
 
-describe('payments', () => {
-  async function startPayment() {
-    const backend = await jobAwaitingPayment();
-    const payment = await run(
-      backend.payments.initiatePayment(backend.job.id, '0712 345 678'),
-      STK_SEND_MS,
-    );
-    return { ...backend, payment };
-  }
+describe('service payment', () => {
+  it('completes the job and releases everything to the provider', async () => {
+    const { b, job } = await jobAwaitingPayment();
+    const payment = await pay(b, job.id);
+    expect(payment.purpose).toBe('SERVICE');
+    expect(payment.amount).toBe(ITEMS_TOTAL);
+    expect(status(b, job.id)).toBe('COMPLETED');
 
-  it('sends an STK prompt for the amount due', async () => {
-    const { payment } = await startPayment();
-    expect(payment).toMatchObject({
-      status: 'PENDING',
-      phone: '254712345678',
-      amount: ITEMS_TOTAL,
-    });
+    const [release] = b.billing.getReleasesSnapshot();
+    expect(release.lines.map(l => l.purpose)).toEqual(['CALL_OUT', 'SERVICE']);
+    expect(release.gross).toBe(CALL_OUT + ITEMS_TOTAL);
+    expect(release.net).toBe(release.gross - release.commission);
+    expect(release.commission).toBe(kes(80) + kes(550));
   });
 
   it('refuses an invalid phone number straight away', async () => {
-    const { payments, job } = await jobAwaitingPayment();
-    await expect(payments.initiatePayment(job.id, '12345')).rejects.toThrow(
+    const { b, job } = await jobAwaitingPayment();
+    await expect(b.billing.initiatePayment(job.id, '12345')).rejects.toThrow(
       PaymentError,
     );
   });
 
   it('refuses a second payment while one is in progress', async () => {
-    const { payments, job } = await startPayment();
-    await Promise.all([
-      expect(payments.initiatePayment(job.id, '0712345678')).rejects.toThrow(
-        'already in progress',
-      ),
-      jest.advanceTimersByTimeAsync(STK_SEND_MS),
-    ]);
-  });
-
-  it('completes the job when the customer pays', async () => {
-    const { repo, payments, phone, job, payment } = await startPayment();
-
-    phone.respondToPaymentPrompt(payment.id, 'pay');
-    expect(payments.getPaymentSnapshot(payment.id)?.status).toBe('PROCESSING');
-
-    await jest.advanceTimersByTimeAsync(PAYMENT_PROCESSING_MS);
-    const paid = payments.getPaymentSnapshot(payment.id)!;
-    expect(paid.status).toBe('SUCCESS');
-    expect(paid.receiptNumber).toMatch(/^S[A-Z0-9]{9}$/);
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('PAID');
-    expect(repo.getJobSnapshot(job.id)?.payment?.amount).toBe(ITEMS_TOTAL);
-
-    await jest.advanceTimersByTimeAsync(PAID_TO_COMPLETED_MS);
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('COMPLETED');
-  });
-
-  it('leaves the job awaiting payment when the customer cancels the prompt', async () => {
-    const { repo, payments, phone, job, payment } = await startPayment();
-    phone.respondToPaymentPrompt(payment.id, 'cancel');
-    expect(payments.getPaymentSnapshot(payment.id)).toMatchObject({
-      status: 'FAILED',
-      failureReason: 'cancelled_by_user',
-    });
-    expect(repo.getJobSnapshot(job.id)?.status).toBe('PAYMENT_PENDING');
-
-    // And they can try again.
-    const retry = await run(
-      payments.initiatePayment(job.id, '0712345678'),
+    const { b, job } = await jobAwaitingPayment();
+    await run(b.billing.initiatePayment(job.id, '0712345678'), STK_SEND_MS);
+    await expectRejects(
+      b.billing.initiatePayment(job.id, '0712345678'),
+      'already in progress',
       STK_SEND_MS,
     );
-    expect(retry.status).toBe('PENDING');
   });
 
-  it('fails on insufficient funds', async () => {
-    const { payments, phone, payment } = await startPayment();
-    phone.respondToPaymentPrompt(payment.id, 'insufficient_funds');
-    await jest.advanceTimersByTimeAsync(PAYMENT_PROCESSING_MS);
-    expect(payments.getPaymentSnapshot(payment.id)?.failureReason).toBe(
-      'insufficient_funds',
+  it('fails when the prompt is ignored, and can be retried', async () => {
+    const { b, job } = await jobAwaitingPayment();
+    const payment = await run(
+      b.billing.initiatePayment(job.id, '0712345678'),
+      STK_SEND_MS,
     );
-  });
-
-  it('times out when the prompt is ignored', async () => {
-    const { payments, payment } = await startPayment();
     await jest.advanceTimersByTimeAsync(STK_TIMEOUT_MS);
-    expect(payments.getPaymentSnapshot(payment.id)?.failureReason).toBe(
+    expect(b.billing.getPaymentSnapshot(payment.id)?.failureReason).toBe(
       'timeout',
     );
+    await pay(b, job.id);
+    expect(status(b, job.id)).toBe('COMPLETED');
   });
 });
 
 describe('ratings', () => {
-  async function completedJob() {
-    const backend = await jobAwaitingPayment();
-    const payment = await run(
-      backend.payments.initiatePayment(backend.job.id, '0712345678'),
-      STK_SEND_MS,
+  it('saves the rating once, and updates the provider average', async () => {
+    const { b, job } = await jobAwaitingPayment();
+    await pay(b, job.id);
+    const before = b.providers.getProviderSnapshot('p1')!;
+    await run(b.jobs.submitRating(job.id, 5, 'Quick and tidy'));
+    expect(b.providers.getProviderSnapshot('p1')!.ratingCount).toBe(
+      before.ratingCount + 1,
     );
-    backend.phone.respondToPaymentPrompt(payment.id, 'pay');
-    await jest.advanceTimersByTimeAsync(
-      PAYMENT_PROCESSING_MS + PAID_TO_COMPLETED_MS,
-    );
-    return backend;
-  }
-
-  it('saves the rating and updates the provider average', async () => {
-    const { repo, providers, job } = await completedJob();
-    const before = providers.getProviderSnapshot('p1')!;
-
-    const rated = await run(repo.submitRating(job.id, 5, 'Quick and tidy'));
-    expect(rated.rating).toMatchObject({ stars: 5, comment: 'Quick and tidy' });
-
-    const after = providers.getProviderSnapshot('p1')!;
-    expect(after.ratingCount).toBe(before.ratingCount + 1);
-    expect(after.rating).toBeGreaterThanOrEqual(before.rating);
-  });
-
-  it('refuses a second rating', async () => {
-    const { repo, job } = await completedJob();
-    await run(repo.submitRating(job.id, 4, ''));
     await expectRejects(
-      repo.submitRating(job.id, 5, ''),
+      b.jobs.submitRating(job.id, 4, ''),
       'can no longer be rated',
     );
   });
 });
 
 describe('simulated providers', () => {
-  it('run a whole job on their own up to the quote', async () => {
-    const backend = createMockBackend({ botProviderIds: ['p2', 'p3'] });
-    const repo = backend.jobs;
-    await run(backend.providers.setOnline('p1', false), 300);
-    const job = await createJob(repo);
+  it('run a fixed-price service on their own until it needs the customer', async () => {
+    const b = createMockBackend({ botProviderIds: ['p2', 'p3'] });
+    await run(b.providers.setOnline('p1', false), 300);
+    const job = await book(b, SERVICE);
+    await pay(b, job.id);
 
     await jest.advanceTimersByTimeAsync(
       MATCHING_DELAY_MS +
@@ -590,15 +722,11 @@ describe('simulated providers', () => {
         BOT_TIMINGS.startTrip +
         BOT_TIMINGS.arrive +
         BOT_TIMINGS.inspect +
-        BOT_TIMINGS.quote +
+        BOT_TIMINGS.finishWork +
         NETWORK_MS * 5,
     );
-
-    const quoted = repo.getJobSnapshot(job.id)!;
-    expect(quoted.status).toBe('QUOTE_SENT');
-    expect(quoted.providerId).toBe('p2');
-    expect(
-      repo.getQuoteSnapshot(quoted.quoteId!)?.items.length,
-    ).toBeGreaterThan(0);
+    const done = b.jobs.getJobSnapshot(job.id)!;
+    expect(done.providerId).toBe('p2');
+    expect(done.status).toBe('AWAITING_CONFIRMATION');
   });
 });

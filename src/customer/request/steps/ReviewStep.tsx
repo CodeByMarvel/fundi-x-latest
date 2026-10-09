@@ -1,6 +1,15 @@
 import { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { formatKes } from '../../../domain/money';
+import { PriceEstimate } from '../../../domain/pricing/PricingService';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
+import { QuoteItemsList } from '../../../shared/components/QuoteItemsList';
 import { colors } from '../../../shared/theme/colors';
 import { vehicleName } from '../../data/mockVehicles';
 import { StepLayout } from '../components/StepLayout';
@@ -18,6 +27,10 @@ type Props = {
   onSubmit: () => void;
   /** True while the request is being sent. */
   submitting?: boolean;
+  /** The price, once Fundi-X has worked it out. */
+  estimate?: PriceEstimate;
+  estimateFailed?: boolean;
+  onRetryEstimate: () => void;
 };
 
 function urgencyText(draft: RequestDraft) {
@@ -41,6 +54,9 @@ export function ReviewStep({
   onEdit,
   onSubmit,
   submitting = false,
+  estimate,
+  estimateFailed = false,
+  onRetryEstimate,
 }: Props) {
   const category = getCategory(draft.categoryId);
   const questionIds = resolveQuestionPath(draft.categoryId, draft.answers);
@@ -51,18 +67,24 @@ export function ReviewStep({
     <StepLayout
       title="Review your request"
       footer={
-        <>
-          <Text style={styles.note}>
-            You won't be charged for repairs until you approve the quote.
-          </Text>
-          <PrimaryButton
-            label={submitting ? 'Sending request…' : 'Request help'}
-            onPress={onSubmit}
-            disabled={submitting}
-          />
-        </>
+        <PrimaryButton
+          label={
+            estimate?.pricingMode === 'FIXED'
+              ? 'Accept price & pay call-out'
+              : 'Book & pay call-out'
+          }
+          onPress={onSubmit}
+          loading={submitting}
+          disabled={!estimate}
+        />
       }
     >
+      <PriceSection
+        estimate={estimate}
+        failed={estimateFailed}
+        onRetry={onRetryEstimate}
+      />
+
       <Section title="Vehicle" onEdit={() => onEdit('vehicle')}>
         <Text style={styles.primary}>{vehicle && vehicleName(vehicle)}</Text>
         <Text style={styles.secondary}>{vehicle?.registration}</Text>
@@ -125,6 +147,68 @@ export function ReviewStep({
         </Text>
       </Section>
     </StepLayout>
+  );
+}
+
+/** What the booking costs, shown before the customer commits. */
+function PriceSection({
+  estimate,
+  failed,
+  onRetry,
+}: {
+  estimate?: PriceEstimate;
+  failed: boolean;
+  onRetry: () => void;
+}) {
+  if (failed) {
+    return (
+      <View style={[styles.section, styles.priceSection]}>
+        <Text style={styles.secondary}>We couldn't work out the price.</Text>
+        <PrimaryButton variant="outline" label="Try again" onPress={onRetry} />
+      </View>
+    );
+  }
+  if (!estimate) {
+    return (
+      <View style={[styles.section, styles.priceSection, styles.inline]}>
+        <ActivityIndicator color={colors.primary} />
+        <Text style={styles.secondary}>Working out your price…</Text>
+      </View>
+    );
+  }
+
+  const service = estimate.fixedService;
+  return (
+    <View style={[styles.section, styles.priceSection]}>
+      <Text style={styles.sectionTitle}>Price</Text>
+      {service && (
+        <>
+          <Text style={styles.primary}>{service.packageName}</Text>
+          <QuoteItemsList
+            items={service.items.map((item, i) => ({
+              ...item,
+              id: String(i),
+              total: item.quantity * item.unitPrice,
+            }))}
+            totalLabel="Service · pay after the work"
+          />
+          <Text style={styles.note}>
+            Fixed by Fundi-X: your fundi can't change it. Extra work only
+            happens if you approve it.
+          </Text>
+        </>
+      )}
+      <View style={styles.priceRow}>
+        <Text style={[styles.primary, styles.grow]}>Call-out · pay now</Text>
+        <Text style={styles.price}>{formatKes(estimate.callOut)}</Text>
+      </View>
+      <Text style={styles.note}>
+        {service
+          ? "Covers your fundi's trip. "
+          : "Covers your fundi's trip and inspection. They'll send a repair estimate for you to approve; you never pay for repairs you haven't approved. "}
+        Fully refunded if no fundi is found or you cancel before they set off.
+      </Text>
+    </View>
   );
 }
 
@@ -203,9 +287,28 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
   },
+  priceSection: {
+    borderColor: colors.primary,
+    gap: 8,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  price: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textDark,
+  },
+  grow: {
+    flex: 1,
+  },
   note: {
     fontSize: 13,
-    textAlign: 'center',
+    lineHeight: 18,
     color: colors.textGrey,
   },
 });

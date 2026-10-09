@@ -1,33 +1,28 @@
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Wallet } from 'lucide-react-native';
-import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getCategory } from '../../customer/request/data/categories';
-import { useProviderJobs } from '../../data/useJob';
+import { useJob, useProviderReleases } from '../../data/useJob';
+import { formatRate } from '../../domain/billing/commission';
+import { Release } from '../../domain/billing/types';
 import { formatKes } from '../../domain/money';
-import { COMMISSION_BPS } from '../../domain/payments/commission';
 import { SectionTitle } from '../../shared/components/SectionTitle';
 import { formatDateTime } from '../../shared/format';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { CURRENT_PROVIDER_ID } from '../data/mockMechanic';
-import { earningsFrom, isToday, sumPayouts } from '../earnings';
+import { isToday, sumCommission, sumNet } from '../earnings';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
-/** What the provider has earned, worked out from paid jobs. */
+/** What the provider has earned: every release from escrow to them. */
 export function EarningsScreen() {
   const { top } = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
-  const navigation =
-    useNavigation<NativeStackNavigationProp<MechanicStackParamList>>();
-  const jobs = useProviderJobs(CURRENT_PROVIDER_ID);
+  const releases = useProviderReleases(CURRENT_PROVIDER_ID);
 
-  const earnings = useMemo(() => earningsFrom(jobs), [jobs]);
-  const today = sumPayouts(earnings.filter(e => isToday(e.paidAt)));
-  const total = sumPayouts(earnings);
-  const fees = earnings.reduce((sum, e) => sum + e.commission, 0);
+  const today = sumNet(releases.filter(r => isToday(r.createdAt)));
 
   return (
     <ScrollView
@@ -45,57 +40,70 @@ export function EarningsScreen() {
         <View style={styles.heroRow}>
           <View>
             <Text style={styles.heroSmallLabel}>All time</Text>
-            <Text style={styles.heroSmall}>{formatKes(total)}</Text>
+            <Text style={styles.heroSmall}>{formatKes(sumNet(releases))}</Text>
           </View>
           <View>
-            <Text style={styles.heroSmallLabel}>Paid jobs</Text>
-            <Text style={styles.heroSmall}>{earnings.length}</Text>
+            <Text style={styles.heroSmallLabel}>Payouts</Text>
+            <Text style={styles.heroSmall}>{releases.length}</Text>
           </View>
           <View>
             <Text style={styles.heroSmallLabel}>Fundi-X fees</Text>
-            <Text style={styles.heroSmall}>{formatKes(fees)}</Text>
+            <Text style={styles.heroSmall}>
+              {formatKes(sumCommission(releases))}
+            </Text>
           </View>
         </View>
       </View>
       <Text style={styles.note}>
-        Fundi-X keeps {COMMISSION_BPS / 100}% of each payment. The rest is
-        yours.
+        Customers pay into Fundi-X escrow. When a job ends, it’s released to you
+        minus a {formatRate('SERVICE')} fee.
       </Text>
 
-      {earnings.length === 0 ? (
+      {releases.length === 0 ? (
         <View style={styles.empty}>
           <Wallet color={colors.textLight} size={32} />
           <Text style={styles.emptyText}>
-            Earnings from paid jobs will show up here.
+            Earnings from finished jobs will show up here.
           </Text>
         </View>
       ) : (
         <View style={styles.section}>
-          <SectionTitle>Payments</SectionTitle>
+          <SectionTitle>Payouts</SectionTitle>
           <View style={styles.list}>
-            {earnings.map(e => (
-              <Pressable
-                key={e.job.id}
-                style={styles.row}
-                onPress={() =>
-                  navigation.navigate('MechanicJob', { jobId: e.job.id })
-                }
-              >
-                <View style={styles.rowBody}>
-                  <Text style={styles.service}>
-                    {getCategory(e.job.categoryId)?.label}
-                  </Text>
-                  <Text style={styles.meta}>
-                    {formatDateTime(e.paidAt)} · paid {formatKes(e.gross)}
-                  </Text>
-                </View>
-                <Text style={styles.payout}>+{formatKes(e.payout)}</Text>
-              </Pressable>
+            {releases.map(r => (
+              <PayoutRow key={r.id} release={r} />
             ))}
           </View>
         </View>
       )}
     </ScrollView>
+  );
+}
+
+function PayoutRow({ release }: { release: Release }) {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<MechanicStackParamList>>();
+  const job = useJob(release.jobId);
+  const callOutOnly = release.lines.every(l => l.purpose === 'CALL_OUT');
+
+  return (
+    <Pressable
+      style={styles.row}
+      onPress={() =>
+        navigation.navigate('MechanicJob', { jobId: release.jobId })
+      }
+    >
+      <View style={styles.rowBody}>
+        <Text style={styles.service}>
+          {job ? getCategory(job.categoryId)?.label : release.jobId}
+        </Text>
+        <Text style={styles.meta}>
+          {formatDateTime(release.createdAt)} ·{' '}
+          {callOutOnly ? 'call-out only' : `paid ${formatKes(release.gross)}`}
+        </Text>
+      </View>
+      <Text style={styles.payout}>+{formatKes(release.net)}</Text>
+    </Pressable>
   );
 }
 

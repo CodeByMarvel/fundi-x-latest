@@ -6,7 +6,8 @@ import { Card, textStyles } from '../../../shared/components/Card';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { TextField } from '../../../shared/components/TextField';
 import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
-import { ApprovedWorkPanel } from './QuotePanels';
+import { colors } from '../../../shared/theme/colors';
+import { AgreedWorkPanel } from './QuotePanels';
 
 /**
  * The provider says they're done: the customer checks the work, then either
@@ -24,7 +25,7 @@ export function CompletionPanel({ job }: { job: Job }) {
           {job.workSummary ? `“${job.workSummary}”` : 'No notes added.'}
         </Text>
       </Card>
-      <ApprovedWorkPanel job={job} title="Work done" />
+      <AgreedWorkPanel job={job} title="Work done" />
 
       {reporting ? (
         <Card title="Report a problem">
@@ -74,6 +75,10 @@ export function CompletionPanel({ job }: { job: Job }) {
             onPress={() => setReporting(true)}
             disabled={pending !== null}
           />
+          <Text style={styles.note}>
+            If you don't respond within 48 hours, we'll take it that the work is
+            fine.
+          </Text>
         </View>
       )}
     </>
@@ -81,6 +86,11 @@ export function CompletionPanel({ job }: { job: Job }) {
 }
 
 const styles = StyleSheet.create({
+  note: {
+    fontSize: 13,
+    textAlign: 'center',
+    color: colors.textGrey,
+  },
   actions: {
     gap: 8,
   },

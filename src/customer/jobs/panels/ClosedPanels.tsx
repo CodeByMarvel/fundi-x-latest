@@ -1,45 +1,70 @@
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { StyleSheet, Text, View } from 'react-native';
-import { jobRepository } from '../../../data/backend';
-import { createInputFromJob } from '../../../domain/jobs/jobs';
-import { Job } from '../../../domain/jobs/types';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { jobRepository, pricingService } from '../../../data/backend';
+import { requestDetailsFromJob } from '../../../domain/jobs/jobs';
+import { CancellationReason, Job } from '../../../domain/jobs/types';
+import { formatKes } from '../../../domain/money';
 import { Card, textStyles } from '../../../shared/components/Card';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
 import type { CustomerStackParamList } from '../../navigation/CustomerNavigator';
 
-/** Shown on a cancelled job: what happened, and a way to try again. */
+/** Endings where booking the same job again makes sense. */
+const RETRYABLE: CancellationReason[] = [
+  'call_out_unpaid',
+  'customer_cancelled',
+  'no_provider_available',
+  'customer_no_show',
+];
+
+/** Shown on a cancelled job: a way to try again, and the way home. */
 export function CancelledPanel({ job }: { job: Job }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
   const { pending, run } = useAsyncAction<'again'>();
-  const reason = job.cancellation?.reason;
   const canRetry =
-    reason === 'provider_cancelled' ||
-    reason === 'no_provider_available' ||
-    reason === 'customer_cancelled';
+    !!job.cancellation && RETRYABLE.includes(job.cancellation.reason);
 
+  // A new booking needs a fresh price and a fresh call-out payment.
   const requestAgain = () =>
     run('again', async () => {
-      const next = await jobRepository.createJob(createInputFromJob(job));
-      navigation.replace('JobTracking', { jobId: next.id });
+      const details = requestDetailsFromJob(job);
+      const estimate = await pricingService.estimate(details);
+      Alert.alert(
+        'Book again?',
+        `The call-out is ${formatKes(estimate.callOut)}${
+          estimate.fixedService
+            ? `, and the service is ${formatKes(
+                estimate.fixedService.total,
+              )} (paid at the end)`
+            : ''
+        }.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Book',
+            onPress: () =>
+              run('again', async () => {
+                const next = await jobRepository.createJob({
+                  ...details,
+                  acceptedPrice: {
+                    callOut: estimate.callOut,
+                    fixedServiceTotal: estimate.fixedService?.total,
+                  },
+                });
+                navigation.replace('JobTracking', { jobId: next.id });
+              }),
+          },
+        ],
+      );
     });
 
   return (
     <View style={styles.wrap}>
-      {job.cancellation?.note && (
-        <Card title="Message from your fundi">
-          <Text style={textStyles.quote}>“{job.cancellation.note}”</Text>
-        </Card>
-      )}
       {canRetry && (
         <PrimaryButton
-          label={
-            reason === 'provider_cancelled'
-              ? 'Find another fundi'
-              : 'Request again'
-          }
+          label="Request again"
           onPress={requestAgain}
           loading={pending === 'again'}
         />
@@ -59,7 +84,7 @@ export function DisputePanel({ job }: { job: Job }) {
     <Card title="Your report">
       <Text style={textStyles.quote}>“{job.dispute?.reason}”</Text>
       <Text style={textStyles.secondary}>
-        You won't be asked to pay until this is sorted out.
+        Your money stays with Fundi-X until this is sorted out.
       </Text>
     </Card>
   );

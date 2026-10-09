@@ -6,11 +6,14 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { vehicleName } from '../../customer/data/mockVehicles';
 import { getCategory } from '../../customer/request/data/categories';
-import { useOfferForProvider, useProviderJobs } from '../../data/useJob';
+import {
+  useJobLedger,
+  useOfferForProvider,
+  useProviderJobs,
+} from '../../data/useJob';
 import { isTerminalStatus } from '../../domain/jobs/transitions';
 import { Job } from '../../domain/jobs/types';
 import { formatKes } from '../../domain/money';
-import { providerPayout } from '../../domain/payments/commission';
 import { SectionTitle } from '../../shared/components/SectionTitle';
 import { StatusPill } from '../../shared/components/StatusPill';
 import { formatDate } from '../../shared/format';
@@ -100,6 +103,7 @@ function Section({
 
 function JobRow({ job, onPress }: { job: Job; onPress: () => void }) {
   const view = providerJobView(job);
+  const { release } = useJobLedger(job.id);
   return (
     <Pressable style={styles.row} onPress={onPress} accessibilityRole="button">
       <View style={styles.rowBody}>
@@ -107,10 +111,8 @@ function JobRow({ job, onPress }: { job: Job; onPress: () => void }) {
           <Text style={styles.service} numberOfLines={1}>
             {getCategory(job.categoryId)?.label}
           </Text>
-          {job.payment && (
-            <Text style={styles.amount}>
-              {formatKes(providerPayout(job.payment.amount))}
-            </Text>
+          {release && (
+            <Text style={styles.amount}>{formatKes(release.net)}</Text>
           )}
         </View>
         <Text style={styles.meta} numberOfLines={1}>

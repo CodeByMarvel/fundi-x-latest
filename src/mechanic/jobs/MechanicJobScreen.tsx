@@ -13,12 +13,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { vehicleName } from '../../customer/data/mockVehicles';
 import { getCategory } from '../../customer/request/data/categories';
 import { jobRepository } from '../../data/backend';
-import { useJob, useProvider, useQuote } from '../../data/useJob';
+import {
+  useAdditionalQuotes,
+  useJob,
+  useJobLedger,
+  useQuote,
+} from '../../data/useJob';
+import { formatRate } from '../../domain/billing/commission';
+import { NO_SHOW_WAIT_MS } from '../../domain/jobs/rules';
 import { canTransition } from '../../domain/jobs/transitions';
 import { Job } from '../../domain/jobs/types';
 import { formatKes } from '../../domain/money';
-import { commissionOn, COMMISSION_BPS } from '../../domain/payments/commission';
-import { QuoteStatus } from '../../domain/quotes/types';
+import { Quote, QuoteStatus } from '../../domain/quotes/types';
 import { Avatar } from '../../shared/components/Avatar';
 import { Card, Detail, textStyles } from '../../shared/components/Card';
 import { MapPlaceholder } from '../../shared/components/MapPlaceholder';
@@ -29,6 +35,7 @@ import { ScreenHeader } from '../../shared/components/ScreenHeader';
 import { StarRating } from '../../shared/components/StarRating';
 import { PillTone, StatusPill } from '../../shared/components/StatusPill';
 import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
+import { useNow } from '../../shared/hooks/useNow';
 import { colors } from '../../shared/theme/colors';
 import { CURRENT_PROVIDER_ID, mockCustomerContact } from '../data/mockMechanic';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
@@ -46,13 +53,14 @@ type Action =
   | 'decline'
   | 'trip'
   | 'arrive'
-  | 'inspect'
+  | 'start'
+  | 'noShow'
   | 'revise'
   | 'complete'
-  | 'cancel';
+  | 'withdraw';
 
 /** A form that replaces the action buttons while it's open. */
-type OpenForm = 'complete' | 'cancel' | null;
+type OpenForm = 'complete' | 'withdraw' | null;
 
 const me = CURRENT_PROVIDER_ID;
 
@@ -64,20 +72,25 @@ const me = CURRENT_PROVIDER_ID;
 export function MechanicJobScreen({ navigation, route }: Props) {
   const { top, bottom } = useSafeAreaInsets();
   const job = useJob(route.params.jobId);
+  const additional = useAdditionalQuotes(route.params.jobId);
+  const ledger = useJobLedger(route.params.jobId);
   const { pending, run } = useAsyncAction<Action>();
   const [form, setForm] = useState<OpenForm>(null);
+  const now = useNow();
 
   const isMine = job?.providerId === me;
   const offeredToMe = job?.status === 'OFFERED' && job.offeredProviderId === me;
+  // A job that ended with a payout to me stays visible for the record.
+  const paidToMe = ledger.release?.providerId === me;
 
-  if (!job || (!isMine && !offeredToMe)) {
+  if (!job || (!isMine && !offeredToMe && !paidToMe)) {
     return (
       <View style={[styles.screen, { paddingTop: top }]}>
         <ScreenHeader title="Job" onBack={() => navigation.goBack()} />
         <View style={styles.gone}>
           <Text style={styles.title}>This job is no longer available</Text>
           <Text style={textStyles.secondary}>
-            It may have been cancelled, or offered to another fundi.
+            It may have been cancelled, or handed to another fundi.
           </Text>
           <PrimaryButton label="Back" onPress={() => navigation.goBack()} />
         </View>
@@ -86,8 +99,13 @@ export function MechanicJobScreen({ navigation, route }: Props) {
   }
 
   const view = providerJobView(job);
-  const canCancel =
-    isMine && canTransition(job.status, 'CANCELLED', 'PROVIDER');
+  // The rulebook decides which buttons exist, not this screen.
+  const canWithdraw = isMine && canTransition(job, 'SEARCHING', 'PROVIDER');
+  const waitingOnExtra = additional.some(q => q.status === 'PENDING');
+  const msUntilNoShow =
+    job.status === 'ARRIVED'
+      ? Date.parse(job.arrivedAt ?? job.updatedAt) + NO_SHOW_WAIT_MS - now
+      : 0;
 
   const act = (name: Action, action: () => Promise<unknown>) =>
     run(name, action).then(ok => ok && setForm(null));
@@ -95,7 +113,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
   const revise = () =>
     act('revise', async () => {
       await jobRepository.reviseQuote(job.id, me);
-      navigation.navigate('QuoteBuilder', { jobId: job.id });
+      navigation.navigate('QuoteBuilder', { jobId: job.id, mode: 'base' });
     });
 
   return (
@@ -124,7 +142,10 @@ export function MechanicJobScreen({ navigation, route }: Props) {
         {isMine && <CustomerCard />}
 
         <ProblemCard job={job} />
-        <QuoteCard job={job} />
+        <BaseQuoteCard job={job} />
+        {additional.map(q => (
+          <AdditionalQuoteCard key={q.id} quote={q} />
+        ))}
 
         {job.workSummary && (
           <Card title="Your work notes">
@@ -141,12 +162,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
             )}
           </Card>
         )}
-        {job.cancellation?.note && (
-          <Card title="Cancellation note">
-            <Text style={textStyles.quote}>“{job.cancellation.note}”</Text>
-          </Card>
-        )}
-        {job.payment && <EarningsCard job={job} />}
+        <EarningsCard jobId={job.id} />
         {job.rating && (
           <Card title="Customer's rating">
             <StarRating value={job.rating.stars} />
@@ -163,7 +179,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
             title="Finish the job"
             placeholder="What did you do? The customer sees this."
             submitLabel="Mark work complete"
-            suggestions={['Work done as quoted', 'Replaced parts and tested']}
+            suggestions={['Work done as agreed', 'Replaced parts and tested']}
             loading={pending === 'complete'}
             onSubmit={text =>
               act('complete', () =>
@@ -174,21 +190,22 @@ export function MechanicJobScreen({ navigation, route }: Props) {
           />
         )}
 
-        {form === 'cancel' && (
+        {form === 'withdraw' && (
           <ReasonForm
-            title="Cancel this job"
+            title="Withdraw from this job"
             placeholder="Tell the customer why"
-            submitLabel="Cancel job"
+            submitLabel="Withdraw"
             suggestions={[
               'My vehicle broke down',
               'Emergency came up',
               "Can't reach the location",
             ]}
-            loading={pending === 'cancel'}
+            loading={pending === 'withdraw'}
             onSubmit={text =>
-              act('cancel', () =>
-                jobRepository.providerCancelJob(job.id, me, text),
-              )
+              act('withdraw', async () => {
+                await jobRepository.withdrawFromJob(job.id, me, text);
+                navigation.goBack();
+              })
             }
             onBack={() => setForm(null)}
           />
@@ -237,21 +254,47 @@ export function MechanicJobScreen({ navigation, route }: Props) {
               />
             )}
             {isMine && job.status === 'ARRIVED' && (
-              <PrimaryButton
-                label="Start inspection"
-                loading={pending === 'inspect'}
-                onPress={() =>
-                  act('inspect', () =>
-                    jobRepository.startInspection(job.id, me),
-                  )
-                }
-              />
+              <>
+                <PrimaryButton
+                  label={
+                    job.pricingMode === 'FIXED'
+                      ? 'Start service'
+                      : 'Start inspection'
+                  }
+                  loading={pending === 'start'}
+                  onPress={() =>
+                    act('start', () =>
+                      job.pricingMode === 'FIXED'
+                        ? jobRepository.startService(job.id, me)
+                        : jobRepository.startInspection(job.id, me),
+                    )
+                  }
+                />
+                <PrimaryButton
+                  variant="outline"
+                  label={
+                    msUntilNoShow > 0
+                      ? `Customer not here? (${formatWait(msUntilNoShow)})`
+                      : 'Customer not here'
+                  }
+                  loading={pending === 'noShow'}
+                  disabled={msUntilNoShow > 0}
+                  onPress={() =>
+                    act('noShow', () =>
+                      jobRepository.reportCustomerNoShow(job.id, me),
+                    )
+                  }
+                />
+              </>
             )}
             {isMine && job.status === 'DIAGNOSING' && (
               <PrimaryButton
-                label={job.quoteId ? 'Send updated quote' : 'Create quote'}
+                label={job.baseQuoteId ? 'Send updated quote' : 'Create quote'}
                 onPress={() =>
-                  navigation.navigate('QuoteBuilder', { jobId: job.id })
+                  navigation.navigate('QuoteBuilder', {
+                    jobId: job.id,
+                    mode: 'base',
+                  })
                 }
               />
             )}
@@ -264,16 +307,35 @@ export function MechanicJobScreen({ navigation, route }: Props) {
               />
             )}
             {isMine && job.status === 'IN_PROGRESS' && (
-              <PrimaryButton
-                label="Mark work complete"
-                onPress={() => setForm('complete')}
-              />
+              <>
+                {waitingOnExtra && (
+                  <Text style={styles.waiting}>
+                    Waiting for the customer to answer your extra quote. Carry
+                    on with the agreed work meanwhile.
+                  </Text>
+                )}
+                <PrimaryButton
+                  label="Mark work complete"
+                  disabled={waitingOnExtra}
+                  onPress={() => setForm('complete')}
+                />
+                <PrimaryButton
+                  variant="outline"
+                  label="Found extra work? Quote it"
+                  onPress={() =>
+                    navigation.navigate('QuoteBuilder', {
+                      jobId: job.id,
+                      mode: 'additional',
+                    })
+                  }
+                />
+              </>
             )}
-            {canCancel && (
+            {canWithdraw && (
               <PrimaryButton
                 variant="ghost"
-                label="Cancel job"
-                onPress={() => setForm('cancel')}
+                label="Withdraw from job"
+                onPress={() => setForm('withdraw')}
               />
             )}
           </View>
@@ -281,6 +343,12 @@ export function MechanicJobScreen({ navigation, route }: Props) {
       </ScrollView>
     </View>
   );
+}
+
+/** "14:32" style countdown. */
+function formatWait(ms: number) {
+  const total = Math.ceil(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function CustomerCard() {
@@ -346,40 +414,83 @@ const QUOTE_STATUS: Record<QuoteStatus, { label: string; tone: PillTone }> = {
   SUPERSEDED: { label: 'Being revised', tone: 'stopped' },
 };
 
-function QuoteCard({ job }: { job: Job }) {
-  const quote = useQuote(job.quoteId);
+function BaseQuoteCard({ job }: { job: Job }) {
+  const quote = useQuote(job.baseQuoteId);
   if (!quote) {
     return null;
   }
+  const fixed = quote.issuedBy === 'FUNDI_X';
   const status = QUOTE_STATUS[quote.status];
 
   return (
     <Card
-      title={quote.version > 1 ? `Quote (v${quote.version})` : 'Quote'}
-      aside={<StatusPill label={status.label} tone={status.tone} />}
+      title={
+        fixed
+          ? 'Agreed service'
+          : quote.version > 1
+          ? `Your quote (v${quote.version})`
+          : 'Your quote'
+      }
+      aside={
+        fixed ? (
+          <StatusPill label="Fixed by Fundi-X" tone="success" />
+        ) : (
+          <StatusPill label={status.label} tone={status.tone} />
+        )
+      }
     >
-      {quote.note && <Text style={textStyles.quote}>“{quote.note}”</Text>}
+      {quote.note && (
+        <Text style={fixed ? textStyles.primary : textStyles.quote}>
+          {fixed ? quote.note : `“${quote.note}”`}
+        </Text>
+      )}
       <QuoteItemsList items={quote.items} />
+      {fixed && (
+        <Text style={textStyles.secondary}>
+          The customer agreed this price when booking. If something else is
+          needed, quote it as extra work.
+        </Text>
+      )}
     </Card>
   );
 }
 
-function EarningsCard({ job }: { job: Job }) {
-  const provider = useProvider(job.providerId);
-  const gross = job.payment!.amount;
-  const commission = commissionOn(gross);
+function AdditionalQuoteCard({ quote }: { quote: Quote }) {
+  const status = QUOTE_STATUS[quote.status];
+  return (
+    <Card
+      title="Extra work"
+      aside={<StatusPill label={status.label} tone={status.tone} />}
+    >
+      <Text style={textStyles.primary}>{quote.reason}</Text>
+      <QuoteItemsList items={quote.items} totalLabel="Extra cost" />
+    </Card>
+  );
+}
+
+/** The payout recorded when the job ended, line by line. */
+function EarningsCard({ jobId }: { jobId: string }) {
+  const { release } = useJobLedger(jobId);
+  if (!release) {
+    return null;
+  }
 
   return (
     <Card title="Your earnings">
-      <Line label="Customer paid" value={formatKes(gross)} />
+      {release.lines.map(line => (
+        <Line
+          key={line.paymentId}
+          label={line.purpose === 'CALL_OUT' ? 'Call-out' : 'Service'}
+          value={formatKes(line.gross)}
+        />
+      ))}
       <Line
-        label={`Fundi-X fee (${COMMISSION_BPS / 100}%)`}
-        value={`− ${formatKes(commission)}`}
+        label={`Fundi-X fee (${formatRate('SERVICE')})`}
+        value={`− ${formatKes(release.commission)}`}
       />
-      <Line label="You earn" value={formatKes(gross - commission)} strong />
+      <Line label="You earn" value={formatKes(release.net)} strong />
       <Text style={textStyles.secondary}>
-        M-Pesa code {job.payment!.receiptNumber}
-        {provider && ` · paid to ${provider.name}`}
+        Released from escrow when the job ended.
       </Text>
     </Card>
   );
@@ -452,6 +563,11 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: 8,
+  },
+  waiting: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.warning,
   },
   line: {
     flexDirection: 'row',

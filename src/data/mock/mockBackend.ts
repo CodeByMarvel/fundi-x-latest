@@ -1,7 +1,26 @@
+import { BillingService } from '../../domain/billing/BillingService';
+import { commissionOn } from '../../domain/billing/commission';
+import { balanceDue, settlementFor } from '../../domain/billing/ledger';
+import {
+  Charge,
+  MoneyPurpose,
+  normaliseMpesaPhone,
+  Payment,
+  PaymentError,
+  PaymentFailureReason,
+  Refund,
+  Release,
+} from '../../domain/billing/types';
 import { JobRepository } from '../../domain/jobs/JobRepository';
+import {
+  AUTO_CONFIRM_MS,
+  CALL_OUT_PAYMENT_WINDOW_MS,
+  NO_SHOW_WAIT_MS,
+} from '../../domain/jobs/rules';
 import {
   applyTransition,
   isTerminalStatus,
+  JobTransitionError,
 } from '../../domain/jobs/transitions';
 import {
   CreateJobInput,
@@ -11,24 +30,24 @@ import {
   JobEventMetadata,
   JobStatus,
 } from '../../domain/jobs/types';
-import { PaymentService } from '../../domain/payments/PaymentService';
 import {
-  normaliseMpesaPhone,
-  Payment,
-  PaymentError,
-  PaymentFailureReason,
-} from '../../domain/payments/types';
+  PriceChangedError,
+  PricingService,
+} from '../../domain/pricing/PricingService';
 import { ProviderRepository } from '../../domain/providers/ProviderRepository';
 import { Provider } from '../../domain/providers/types';
 import {
+  AdditionalQuotePendingError,
   buildQuoteItems,
-  feeTotal,
+  hasPendingAdditionalQuote,
+  QuoteValidationError,
   StaleQuoteError,
   sumItems,
   validateQuoteItems,
 } from '../../domain/quotes/quotes';
-import { Quote } from '../../domain/quotes/types';
+import { Quote, QuoteItemInput } from '../../domain/quotes/types';
 import { delay } from './delay';
+import { calculateEstimate } from './mockPricing';
 import { mockProviders } from './mockProviders';
 import { startProviderBots } from './providerBots';
 
@@ -45,7 +64,7 @@ export const ETA_TICK_MS = 5000;
 export const STK_SEND_MS = 1200;
 export const STK_TIMEOUT_MS = 60_000;
 export const PAYMENT_PROCESSING_MS = 2000;
-export const PAID_TO_COMPLETED_MS = 1000;
+export const REFUND_PROCESSING_MS = 3000;
 export const DISPUTE_REVIEW_MS = 15_000;
 
 /** How the customer answers the simulated M-Pesa prompt on their phone. */
@@ -58,7 +77,8 @@ export type SimulatedPhone = {
 
 export type MockBackend = {
   jobs: JobRepository;
-  payments: PaymentService;
+  billing: BillingService;
+  pricing: PricingService;
   providers: ProviderRepository;
   phone: SimulatedPhone;
 };
@@ -76,9 +96,10 @@ type JobChanges = Partial<
 >;
 
 /**
- * An in-memory stand-in for the whole Fundi-X backend. Jobs, quotes,
- * payments and providers share one store, the way they'd share one database,
- * so e.g. a successful payment can move its job to PAID.
+ * An in-memory stand-in for the whole Fundi-X backend. Jobs, quotes, money
+ * and providers share one store, the way they'd share one database, so e.g.
+ * a successful payment can move its job on, and a job ending can move money
+ * out of escrow.
  *
  * It lives outside React, so its data survives screens unmounting and
  * switching between the customer and mechanic sides. Built from closures
@@ -91,7 +112,6 @@ export function createMockBackend({
   const jobs = new Map<string, Job>();
   const events = new Map<string, JobEvent[]>();
   const quotes = new Map<string, Quote>();
-  const payments = new Map<string, Payment>();
   const providers = new Map(mockProviders.map(p => [p.id, { ...p }]));
   const matchingRounds = new Map<string, number>();
   const listeners = new Set<() => void>();
@@ -99,8 +119,12 @@ export function createMockBackend({
 
   // Rebuilt only when something changes, so readers get stable arrays.
   let jobList: readonly Job[] = [];
-  let paymentList: readonly Payment[] = [];
+  let quoteList: readonly Quote[] = [];
   let providerList: readonly Provider[] = [...providers.values()];
+  let charges: readonly Charge[] = [];
+  let payments: readonly Payment[] = [];
+  let refunds: readonly Refund[] = [];
+  let releases: readonly Release[] = [];
 
   const makeId = (prefix: string) => `${prefix}-${nextId++}`;
   const now = () => new Date().toISOString();
@@ -124,13 +148,39 @@ export function createMockBackend({
     jobs.set(job.id, job);
     jobList = [...jobs.values()];
   };
-  const putPayment = (payment: Payment) => {
-    payments.set(payment.id, payment);
-    paymentList = [...payments.values()];
+  const putQuote = (quote: Quote) => {
+    quotes.set(quote.id, quote);
+    quoteList = [...quotes.values()];
   };
   const putProvider = (provider: Provider) => {
     providers.set(provider.id, provider);
     providerList = [...providers.values()];
+  };
+  /** Replaces a record in a list by id, or adds it. */
+  const upsert = <T extends { id: string }>(list: readonly T[], record: T) =>
+    list.some(r => r.id === record.id)
+      ? list.map(r => (r.id === record.id ? record : r))
+      : [...list, record];
+
+  const addCharge = (
+    jobId: string,
+    purpose: MoneyPurpose,
+    amount: number,
+    description: string,
+    quoteId?: string,
+  ) => {
+    charges = [
+      ...charges,
+      {
+        id: makeId('chg'),
+        jobId,
+        purpose,
+        amount,
+        description,
+        ...(quoteId && { quoteId }),
+        createdAt: now(),
+      },
+    ];
   };
 
   const getJobOrThrow = (jobId: string) => {
@@ -149,7 +199,7 @@ export function createMockBackend({
     return provider;
   };
 
-  /** Throws unless `providerId` is the provider who took this job. */
+  /** Throws unless `providerId` is the provider assigned to this job. */
   const assertProvider = (jobId: string, providerId: string) => {
     if (getJobOrThrow(jobId).providerId !== providerId) {
       throw new Error(`Job ${jobId} doesn't belong to ${providerId}`);
@@ -163,16 +213,91 @@ export function createMockBackend({
     }
   };
 
-  /** Throws unless `quoteId` is the job's current, still-open quote. */
-  const assertCurrentQuote = (jobId: string, quoteId: string) => {
+  /**
+   * Throws unless `quoteId` belongs to this job and is still open. For the
+   * main quote it must also be the latest version.
+   */
+  const assertOpenQuote = (jobId: string, quoteId: string) => {
     const quote = quotes.get(quoteId);
     if (
-      getJobOrThrow(jobId).quoteId !== quoteId ||
-      quote?.status !== 'PENDING'
+      !quote ||
+      quote.jobId !== jobId ||
+      quote.status !== 'PENDING' ||
+      (quote.kind === 'BASE' && getJobOrThrow(jobId).baseQuoteId !== quoteId)
     ) {
       throw new StaleQuoteError();
     }
     return quote;
+  };
+
+  const assertStatus = (jobId: string, status: JobStatus, actor: JobActor) => {
+    const job = getJobOrThrow(jobId);
+    if (job.status !== status) {
+      throw new JobTransitionError(job.status, status, actor);
+    }
+    return job;
+  };
+
+  // ---- Escrow ----
+
+  /** Starts returning a payment to the customer's M-Pesa. */
+  const refundPayment = (payment: Payment, reason: string) => {
+    const at = now();
+    const refund: Refund = {
+      id: makeId('ref'),
+      jobId: payment.jobId,
+      paymentId: payment.id,
+      amount: payment.amount,
+      reason,
+      status: 'PENDING',
+      createdAt: at,
+      updatedAt: at,
+    };
+    refunds = [...refunds, refund];
+    setTimeout(() => {
+      refunds = upsert(refunds, {
+        ...refund,
+        status: 'SUCCESS',
+        updatedAt: now(),
+      });
+      notify();
+    }, REFUND_PROCESSING_MS);
+  };
+
+  /**
+   * Runs once, when a job ends. Decides refund vs release with the pure
+   * settlementFor() rules, then records it. Every way a job can end comes
+   * through here, so no ending can forget about the money.
+   */
+  const settle = (job: Job) => {
+    const { refund, release } = settlementFor(job, payments);
+
+    for (const payment of refund) {
+      refundPayment(payment, job.cancellation?.reason ?? 'job_closed');
+    }
+    if (release.length > 0 && job.providerId) {
+      const lines = release.map(p => ({
+        paymentId: p.id,
+        purpose: p.purpose,
+        gross: p.amount,
+        commission: commissionOn(p.amount, p.purpose),
+      }));
+      const gross = lines.reduce((s, l) => s + l.gross, 0);
+      const commission = lines.reduce((s, l) => s + l.commission, 0);
+      releases = [
+        ...releases,
+        {
+          id: makeId('rel'),
+          jobId: job.id,
+          providerId: job.providerId,
+          lines,
+          gross,
+          commission,
+          net: gross - commission,
+          createdAt: now(),
+        },
+      ];
+    }
   };
 
   // ---- Changing jobs ----
@@ -180,8 +305,9 @@ export function createMockBackend({
   /**
    * The only way a job's status changes. Rules are checked against the job
    * as it is *now*, which may differ from what the caller saw when it started.
-   * `alsoSave` stores related records (e.g. a quote) in the same step, so
-   * listeners never see one updated without the other.
+   * `alsoSave` stores related records (e.g. a quote) in the same step, and a
+   * job that ends is settled in the same step too, so listeners never see
+   * one updated without the other.
    */
   const transitionJob = (
     jobId: string,
@@ -210,10 +336,17 @@ export function createMockBackend({
     if (to !== 'EN_ROUTE') {
       delete next.etaMinutes;
     }
+    if (to === 'SEARCHING') {
+      // Back to matching: nobody is assigned any more.
+      delete next.providerId;
+    }
 
     putJob(next);
     events.set(jobId, [...(events.get(jobId) ?? []), event]);
     alsoSave?.();
+    if (isTerminalStatus(to)) {
+      settle(next);
+    }
     notify();
     return next;
   };
@@ -228,6 +361,12 @@ export function createMockBackend({
     notify();
     return next;
   };
+
+  const cancelledBy = (
+    actor: JobActor,
+    reason: NonNullable<Job['cancellation']>['reason'],
+    fromStatus: JobStatus,
+  ): JobChanges => ({ cancellation: { by: actor, reason, fromStatus } });
 
   // ---- Matching (the backend's own background work) ----
 
@@ -252,7 +391,8 @@ export function createMockBackend({
   /**
    * Offers the job to the nearest free, online provider who hasn't been
    * asked yet. If nobody is free right now, tries again a few times; if
-   * everyone has already said no, gives up straight away.
+   * everyone has already said no, gives up straight away (and settlement
+   * refunds the call-out).
    */
   const matchOnce = (jobId: string) => {
     // The job may have been cancelled while we were "searching".
@@ -274,9 +414,7 @@ export function createMockBackend({
       }
       transitionJob(jobId, 'CANCELLED', 'SYSTEM', {
         metadata: { reason: 'no_provider_available' },
-        changes: {
-          cancellation: { by: 'SYSTEM', reason: 'no_provider_available' },
-        },
+        changes: cancelledBy('SYSTEM', 'no_provider_available', 'SEARCHING'),
       });
       return;
     }
@@ -302,6 +440,54 @@ export function createMockBackend({
       });
       startMatching(jobId);
     }, OFFER_TIMEOUT_MS);
+  };
+
+  // ---- Timers for decided business rules ----
+
+  const isInFlight = (p: Payment) =>
+    p.status === 'PENDING' || p.status === 'PROCESSING';
+
+  /** Unpaid bookings close after 30 minutes (unless a payment is running). */
+  const scheduleCallOutDeadline = (
+    jobId: string,
+    ms = CALL_OUT_PAYMENT_WINDOW_MS,
+  ) => {
+    setTimeout(() => {
+      if (jobs.get(jobId)?.status !== 'CALL_OUT_PAYMENT_PENDING') {
+        return;
+      }
+      if (payments.some(p => p.jobId === jobId && isInFlight(p))) {
+        // Don't cut off a customer who is entering their PIN right now.
+        scheduleCallOutDeadline(jobId, STK_TIMEOUT_MS);
+        return;
+      }
+      transitionJob(jobId, 'CANCELLED', 'SYSTEM', {
+        metadata: { reason: 'call_out_unpaid' },
+        changes: cancelledBy(
+          'SYSTEM',
+          'call_out_unpaid',
+          'CALL_OUT_PAYMENT_PENDING',
+        ),
+      });
+    }, ms);
+  };
+
+  /** A customer who doesn't confirm or dispute within 48 h is taken to confirm. */
+  const scheduleAutoConfirm = (job: Job) => {
+    const enteredAt = job.updatedAt;
+    setTimeout(() => {
+      const current = jobs.get(job.id);
+      // Moved on, or this is a later round (after a dispute) with its own timer.
+      if (
+        current?.status !== 'AWAITING_CONFIRMATION' ||
+        current.updatedAt !== enteredAt
+      ) {
+        return;
+      }
+      transitionJob(job.id, 'PAYMENT_PENDING', 'SYSTEM', {
+        metadata: { reason: 'auto_confirmed' },
+      });
+    }, AUTO_CONFIRM_MS);
   };
 
   /** Counts the ETA down while the provider drives over. */
@@ -337,98 +523,173 @@ export function createMockBackend({
     }, DISPUTE_REVIEW_MS);
   };
 
+  // ---- Quotes ----
+
+  const newQuote = (
+    jobId: string,
+    fields: Pick<Quote, 'kind' | 'issuedBy' | 'version' | 'status'> & {
+      providerId?: string;
+      note?: string;
+      reason?: string;
+      respondedAt?: string;
+    },
+    inputs: QuoteItemInput[],
+  ): Quote => {
+    const { note, reason, ...rest } = fields;
+    const items = buildQuoteItems(inputs, () => makeId('item'));
+    return {
+      ...rest,
+      ...(note?.trim() && { note: note.trim() }),
+      ...(reason?.trim() && { reason: reason.trim() }),
+      id: makeId('quote'),
+      jobId,
+      items,
+      total: sumItems(items),
+      createdAt: now(),
+    };
+  };
+
+  /** An approved quote becomes something the customer owes. */
+  const chargeForQuote = (quote: Quote) =>
+    addCharge(
+      quote.jobId,
+      'SERVICE',
+      quote.total,
+      quote.kind === 'BASE' ? 'Agreed work' : `Additional: ${quote.reason}`,
+      quote.id,
+    );
+
   // ---- Jobs ----
 
   const jobRepository: JobRepository = {
     createJob: (input: CreateJobInput) =>
       call(() => {
+        const { acceptedPrice, ...details } = input;
+        // Never trust a price from the app: recalculate it here.
+        const estimate = calculateEstimate(details);
+        if (
+          estimate.callOut !== acceptedPrice.callOut ||
+          estimate.fixedService?.total !== acceptedPrice.fixedServiceTotal
+        ) {
+          throw new PriceChangedError();
+        }
+
         const at = now();
         const job: Job = {
-          ...input,
+          ...details,
           id: makeId('job'),
           customerId: MOCK_CUSTOMER_ID,
-          status: 'SEARCHING',
+          pricingMode: estimate.pricingMode,
+          status: 'CALL_OUT_PAYMENT_PENDING',
           createdAt: at,
           updatedAt: at,
         };
+
+        addCharge(
+          job.id,
+          'CALL_OUT',
+          estimate.callOut,
+          'Call-out (transport & inspection)',
+        );
+        if (estimate.fixedService) {
+          // The customer accepted this price when booking.
+          const quote = newQuote(
+            job.id,
+            {
+              kind: 'BASE',
+              issuedBy: 'FUNDI_X',
+              version: 1,
+              status: 'APPROVED',
+              note: estimate.fixedService.packageName,
+              respondedAt: at,
+            },
+            estimate.fixedService.items,
+          );
+          putQuote(quote);
+          chargeForQuote(quote);
+          job.baseQuoteId = quote.id;
+        }
+
         putJob(job);
         events.set(job.id, [
           {
             id: makeId('evt'),
             jobId: job.id,
             fromStatus: null,
-            toStatus: 'SEARCHING',
+            toStatus: 'CALL_OUT_PAYMENT_PENDING',
             actor: 'CUSTOMER',
             createdAt: at,
+            metadata: {
+              callOut: estimate.callOut,
+              fixedServiceTotal: estimate.fixedService?.total ?? null,
+            },
           },
         ]);
         notify();
-        startMatching(job.id);
+        scheduleCallOutDeadline(job.id);
         return job;
       }),
 
     cancelJob: jobId =>
       call(() =>
         transitionJob(jobId, 'CANCELLED', 'CUSTOMER', {
-          changes: {
-            cancellation: { by: 'CUSTOMER', reason: 'customer_cancelled' },
-          },
+          changes: cancelledBy(
+            'CUSTOMER',
+            'customer_cancelled',
+            getJobOrThrow(jobId).status,
+          ),
         }),
       ),
 
     approveQuote: (jobId, quoteId) =>
       call(() => {
-        const quote = assertCurrentQuote(jobId, quoteId);
+        const quote = assertOpenQuote(jobId, quoteId);
+        const approved: Quote = {
+          ...quote,
+          status: 'APPROVED',
+          respondedAt: now(),
+        };
+
+        if (quote.kind === 'ADDITIONAL') {
+          const job = assertStatus(jobId, 'IN_PROGRESS', 'CUSTOMER');
+          putQuote(approved);
+          chargeForQuote(approved);
+          notify();
+          return job;
+        }
         return transitionJob(jobId, 'IN_PROGRESS', 'CUSTOMER', {
           metadata: { quoteId, total: quote.total },
-          alsoSave: () =>
-            quotes.set(quoteId, {
-              ...quote,
-              status: 'APPROVED',
-              respondedAt: now(),
-            }),
+          alsoSave: () => {
+            putQuote(approved);
+            chargeForQuote(approved);
+          },
         });
       }),
 
     rejectQuote: (jobId, quoteId) =>
       call(() => {
-        const quote = assertCurrentQuote(jobId, quoteId);
-        const fee = feeTotal(quote.items);
-        const markRejected = () =>
-          quotes.set(quoteId, {
-            ...quote,
-            status: 'REJECTED',
-            respondedAt: now(),
-          });
+        const quote = assertOpenQuote(jobId, quoteId);
+        const rejected: Quote = {
+          ...quote,
+          status: 'REJECTED',
+          respondedAt: now(),
+        };
 
-        if (fee > 0) {
-          return transitionJob(jobId, 'PAYMENT_PENDING', 'CUSTOMER', {
-            metadata: { quoteId, amountDue: fee },
-            changes: { amountDue: fee, chargeType: 'INSPECTION_ONLY' },
-            alsoSave: markRejected,
-          });
+        if (quote.kind === 'ADDITIONAL') {
+          putQuote(rejected);
+          notify();
+          return getJobOrThrow(jobId);
         }
+        // Declining the main quote ends the job; the call-out paid for the visit.
         return transitionJob(jobId, 'CANCELLED', 'CUSTOMER', {
           metadata: { quoteId },
-          changes: {
-            cancellation: { by: 'CUSTOMER', reason: 'quote_rejected' },
-          },
-          alsoSave: markRejected,
+          changes: cancelledBy('CUSTOMER', 'quote_declined', 'QUOTE_SENT'),
+          alsoSave: () => putQuote(rejected),
         });
       }),
 
     confirmCompletion: jobId =>
-      call(() => {
-        const job = getJobOrThrow(jobId);
-        const quote = job.quoteId ? quotes.get(job.quoteId) : undefined;
-        if (quote?.status !== 'APPROVED') {
-          throw new Error(`Job ${jobId} has no approved quote`);
-        }
-        return transitionJob(jobId, 'PAYMENT_PENDING', 'CUSTOMER', {
-          metadata: { amountDue: quote.total },
-          changes: { amountDue: quote.total, chargeType: 'FULL' },
-        });
-      }),
+      call(() => transitionJob(jobId, 'PAYMENT_PENDING', 'CUSTOMER')),
 
     disputeCompletion: (jobId, reason) =>
       call(() => {
@@ -490,6 +751,24 @@ export function createMockBackend({
         return job;
       }),
 
+    withdrawFromJob: (jobId, providerId, note) =>
+      call(() => {
+        assertProvider(jobId, providerId);
+        const job = transitionJob(jobId, 'SEARCHING', 'PROVIDER', {
+          metadata: { providerId, reason: 'provider_withdrew' },
+          changes: {
+            reassignment: {
+              providerId,
+              ...(note.trim() && { note: note.trim() }),
+              at: now(),
+            },
+          },
+        });
+        // The call-out stays in escrow while we find someone else.
+        startMatching(jobId);
+        return job;
+      }),
+
     startTrip: (jobId, providerId) =>
       call(() => {
         assertProvider(jobId, providerId);
@@ -504,7 +783,9 @@ export function createMockBackend({
     markArrived: (jobId, providerId) =>
       call(() => {
         assertProvider(jobId, providerId);
-        return transitionJob(jobId, 'ARRIVED', 'PROVIDER');
+        return transitionJob(jobId, 'ARRIVED', 'PROVIDER', {
+          changes: { arrivedAt: now() },
+        });
       }),
 
     startInspection: (jobId, providerId) =>
@@ -513,28 +794,50 @@ export function createMockBackend({
         return transitionJob(jobId, 'DIAGNOSING', 'PROVIDER');
       }),
 
+    startService: (jobId, providerId) =>
+      call(() => {
+        assertProvider(jobId, providerId);
+        return transitionJob(jobId, 'IN_PROGRESS', 'PROVIDER');
+      }),
+
+    reportCustomerNoShow: (jobId, providerId) =>
+      call(() => {
+        assertProvider(jobId, providerId);
+        const job = assertStatus(jobId, 'ARRIVED', 'PROVIDER');
+        const waited = Date.now() - Date.parse(job.arrivedAt ?? job.updatedAt);
+        if (waited < NO_SHOW_WAIT_MS) {
+          throw new Error('Wait 15 minutes at the location first');
+        }
+        return transitionJob(jobId, 'CANCELLED', 'PROVIDER', {
+          metadata: { reason: 'customer_no_show' },
+          changes: cancelledBy('PROVIDER', 'customer_no_show', 'ARRIVED'),
+        });
+      }),
+
     sendQuote: (jobId, providerId, inputs, note) =>
       call(() => {
         assertProvider(jobId, providerId);
         validateQuoteItems(inputs);
         const job = getJobOrThrow(jobId);
-        const previous = job.quoteId ? quotes.get(job.quoteId) : undefined;
-        const items = buildQuoteItems(inputs, () => makeId('item'));
-        const quote: Quote = {
-          id: makeId('quote'),
+        const previous = job.baseQuoteId
+          ? quotes.get(job.baseQuoteId)
+          : undefined;
+        const quote = newQuote(
           jobId,
-          providerId,
-          version: (previous?.version ?? 0) + 1,
-          status: 'PENDING',
-          items,
-          total: sumItems(items),
-          ...(note?.trim() && { note: note.trim() }),
-          createdAt: now(),
-        };
+          {
+            kind: 'BASE',
+            issuedBy: 'PROVIDER',
+            providerId,
+            version: (previous?.version ?? 0) + 1,
+            status: 'PENDING',
+            note,
+          },
+          inputs,
+        );
         transitionJob(jobId, 'QUOTE_SENT', 'PROVIDER', {
           metadata: { quoteId: quote.id, total: quote.total },
-          changes: { quoteId: quote.id },
-          alsoSave: () => quotes.set(quote.id, quote),
+          changes: { baseQuoteId: quote.id },
+          alsoSave: () => putQuote(quote),
         });
         return quote;
       }),
@@ -542,36 +845,54 @@ export function createMockBackend({
     reviseQuote: (jobId, providerId) =>
       call(() => {
         assertProvider(jobId, providerId);
-        const job = getJobOrThrow(jobId);
-        const quote = assertCurrentQuote(jobId, job.quoteId ?? '');
+        const quote = assertOpenQuote(
+          jobId,
+          getJobOrThrow(jobId).baseQuoteId ?? '',
+        );
         return transitionJob(jobId, 'DIAGNOSING', 'PROVIDER', {
           metadata: { quoteId: quote.id, reason: 'revising_quote' },
-          alsoSave: () =>
-            quotes.set(quote.id, { ...quote, status: 'SUPERSEDED' }),
+          alsoSave: () => putQuote({ ...quote, status: 'SUPERSEDED' }),
         });
+      }),
+
+    raiseAdditionalQuote: (jobId, providerId, inputs, reason) =>
+      call(() => {
+        assertProvider(jobId, providerId);
+        assertStatus(jobId, 'IN_PROGRESS', 'PROVIDER');
+        if (!reason.trim()) {
+          throw new QuoteValidationError('Say why the extra work is needed.');
+        }
+        validateQuoteItems(inputs);
+        const quote = newQuote(
+          jobId,
+          {
+            kind: 'ADDITIONAL',
+            issuedBy: 'PROVIDER',
+            providerId,
+            version: 1,
+            status: 'PENDING',
+            reason,
+          },
+          inputs,
+        );
+        putQuote(quote);
+        notify();
+        return quote;
       }),
 
     markWorkComplete: (jobId, providerId, summary) =>
       call(() => {
         assertProvider(jobId, providerId);
-        return transitionJob(jobId, 'AWAITING_CONFIRMATION', 'PROVIDER', {
+        // A business rule across two records (job + quotes), so it's
+        // enforced here rather than in the transition table.
+        if (hasPendingAdditionalQuote(quoteList, jobId)) {
+          throw new AdditionalQuotePendingError();
+        }
+        const job = transitionJob(jobId, 'AWAITING_CONFIRMATION', 'PROVIDER', {
           changes: { workSummary: summary.trim() || undefined },
         });
-      }),
-
-    providerCancelJob: (jobId, providerId, note) =>
-      call(() => {
-        assertProvider(jobId, providerId);
-        return transitionJob(jobId, 'CANCELLED', 'PROVIDER', {
-          metadata: { reason: 'provider_cancelled' },
-          changes: {
-            cancellation: {
-              by: 'PROVIDER',
-              reason: 'provider_cancelled',
-              ...(note.trim() && { note: note.trim() }),
-            },
-          },
-        });
+        scheduleAutoConfirm(job);
+        return job;
       }),
 
     getJob: jobId => call(() => jobs.get(jobId), 300),
@@ -579,18 +900,16 @@ export function createMockBackend({
     getJobSnapshot: jobId => jobs.get(jobId),
     getJobsSnapshot: () => jobList,
     getQuoteSnapshot: quoteId => quotes.get(quoteId),
+    getQuotesSnapshot: () => quoteList,
     subscribe,
   };
 
   // ---- Payments ----
 
   const updatePayment = (paymentId: string, changes: Partial<Payment>) => {
-    const next: Payment = {
-      ...payments.get(paymentId)!,
-      ...changes,
-      updatedAt: now(),
-    };
-    putPayment(next);
+    const current = payments.find(p => p.id === paymentId)!;
+    const next: Payment = { ...current, ...changes, updatedAt: now() };
+    payments = upsert(payments, next);
     notify();
     return next;
   };
@@ -607,36 +926,38 @@ export function createMockBackend({
         'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 34)],
     ).join('');
 
+  /** M-Pesa confirmed the money: it's in escrow. Move the job on. */
   const settlePayment = (paymentId: string) => {
-    const payment = payments.get(paymentId)!;
-    if (jobs.get(payment.jobId)?.status !== 'PAYMENT_PENDING') {
-      return;
-    }
-    const paid = updatePayment(paymentId, {
+    const payment = updatePayment(paymentId, {
       status: 'SUCCESS',
       receiptNumber: makeReceiptNumber(),
     });
-    transitionJob(payment.jobId, 'PAID', 'SYSTEM', {
-      metadata: { paymentId, receiptNumber: paid.receiptNumber! },
-      changes: {
-        payment: {
-          paymentId,
-          amount: paid.amount,
-          receiptNumber: paid.receiptNumber!,
-          paidAt: paid.updatedAt,
-        },
-      },
-    });
-    setTimeout(() => {
-      if (jobs.get(payment.jobId)?.status === 'PAID') {
-        transitionJob(payment.jobId, 'COMPLETED', 'SYSTEM', {
-          changes: { completedAt: now() },
-        });
-      }
-    }, PAID_TO_COMPLETED_MS);
+    const job = getJobOrThrow(payment.jobId);
+    const metadata = { paymentId, receiptNumber: payment.receiptNumber! };
+
+    if (
+      payment.purpose === 'CALL_OUT' &&
+      job.status === 'CALL_OUT_PAYMENT_PENDING'
+    ) {
+      transitionJob(job.id, 'SEARCHING', 'SYSTEM', { metadata });
+      startMatching(job.id);
+    } else if (
+      payment.purpose === 'SERVICE' &&
+      job.status === 'PAYMENT_PENDING'
+    ) {
+      transitionJob(job.id, 'COMPLETED', 'SYSTEM', {
+        metadata,
+        changes: { completedAt: now() },
+      });
+    } else {
+      // The job moved on while the customer was paying (e.g. they cancelled
+      // the booking with the PIN prompt still open). Give the money back.
+      refundPayment(payment, 'job_closed_before_payment');
+      notify();
+    }
   };
 
-  const paymentService: PaymentService = {
+  const billing: BillingService = {
     initiatePayment: async (jobId, phoneInput) => {
       const phone = normaliseMpesaPhone(phoneInput);
       if (!phone) {
@@ -647,15 +968,21 @@ export function createMockBackend({
       await delay(STK_SEND_MS);
 
       const job = jobs.get(jobId);
-      if (job?.status !== 'PAYMENT_PENDING' || !job.amountDue) {
+      // The backend, not the app, decides what this payment is for.
+      const purpose: MoneyPurpose | undefined =
+        job?.status === 'CALL_OUT_PAYMENT_PENDING'
+          ? 'CALL_OUT'
+          : job?.status === 'PAYMENT_PENDING'
+          ? 'SERVICE'
+          : undefined;
+      if (!job || !purpose) {
         throw new PaymentError('This job is not waiting for payment.');
       }
-      const inFlight = paymentList.some(
-        p =>
-          p.jobId === jobId &&
-          (p.status === 'PENDING' || p.status === 'PROCESSING'),
-      );
-      if (inFlight) {
+      const amount = balanceDue(charges, payments, jobId, purpose);
+      if (amount <= 0) {
+        throw new PaymentError('There is nothing to pay right now.');
+      }
+      if (payments.some(p => p.jobId === jobId && isInFlight(p))) {
         throw new PaymentError(
           'A payment for this job is already in progress.',
         );
@@ -665,32 +992,36 @@ export function createMockBackend({
       const payment: Payment = {
         id: makeId('pay'),
         jobId,
+        purpose,
         method: 'MPESA',
         phone,
-        amount: job.amountDue,
+        amount,
         status: 'PENDING',
         createdAt: at,
         updatedAt: at,
       };
-      putPayment(payment);
+      payments = [...payments, payment];
       notify();
 
       // Like M-Pesa, give up if the customer never answers the prompt.
       setTimeout(() => {
-        if (payments.get(payment.id)?.status === 'PENDING') {
+        if (payments.find(p => p.id === payment.id)?.status === 'PENDING') {
           failPayment(payment.id, 'timeout');
         }
       }, STK_TIMEOUT_MS);
       return payment;
     },
-    getPaymentSnapshot: paymentId => payments.get(paymentId),
-    getPaymentsSnapshot: () => paymentList,
+    getPaymentSnapshot: paymentId => payments.find(p => p.id === paymentId),
+    getChargesSnapshot: () => charges,
+    getPaymentsSnapshot: () => payments,
+    getRefundsSnapshot: () => refunds,
+    getReleasesSnapshot: () => releases,
     subscribe,
   };
 
   const phone: SimulatedPhone = {
     respondToPaymentPrompt(paymentId, response) {
-      if (payments.get(paymentId)?.status !== 'PENDING') {
+      if (payments.find(p => p.id === paymentId)?.status !== 'PENDING') {
         return;
       }
       if (response === 'cancel') {
@@ -706,6 +1037,12 @@ export function createMockBackend({
         }
       }, PAYMENT_PROCESSING_MS);
     },
+  };
+
+  // ---- Pricing ----
+
+  const pricing: PricingService = {
+    estimate: details => call(() => calculateEstimate(details), 400),
   };
 
   // ---- Providers ----
@@ -729,7 +1066,8 @@ export function createMockBackend({
 
   return {
     jobs: jobRepository,
-    payments: paymentService,
+    billing,
+    pricing,
     providers: providerRepository,
     phone,
   };

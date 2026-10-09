@@ -5,6 +5,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useActiveJob,
+  useJobLedger,
   useLatestCompletedJob,
   useProviders,
 } from '../../data/useJob';
@@ -29,6 +30,7 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const activeJob = useActiveJob();
   const recentJob = useLatestCompletedJob();
+  const recentLedger = useJobLedger(recentJob?.id ?? '');
   const providers = useProviders();
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
@@ -103,8 +105,8 @@ export function HomeScreen() {
               car: vehicleName(recentJob.vehicle),
               service: getCategory(recentJob.categoryId)?.label ?? '',
               date: formatDate(recentJob.completedAt ?? recentJob.updatedAt),
-              price: recentJob.payment
-                ? formatKes(recentJob.payment.amount)
+              price: recentLedger.totalPaid
+                ? formatKes(recentLedger.totalPaid)
                 : '',
             }}
             onPress={() =>

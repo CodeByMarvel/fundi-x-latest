@@ -58,8 +58,11 @@ export function startProviderBots(jobs: JobRepository, botIds: string[]) {
           later(BOT_TIMINGS.arrive, () => jobs.markArrived(job.id, providerId));
           break;
         case 'ARRIVED':
+          // Fixed-price work was agreed at booking; anything else needs a look first.
           later(BOT_TIMINGS.inspect, () =>
-            jobs.startInspection(job.id, providerId),
+            job.pricingMode === 'FIXED'
+              ? jobs.startService(job.id, providerId)
+              : jobs.startInspection(job.id, providerId),
           );
           break;
         case 'DIAGNOSING':

@@ -1,20 +1,16 @@
 import { Cents, kes } from '../money';
-import { QuoteItem, QuoteItemInput, QuoteItemKind } from './types';
+import { Quote, QuoteItem, QuoteItemInput, QuoteItemKind } from './types';
 
 export const QUOTE_ITEM_KINDS: { kind: QuoteItemKind; label: string }[] = [
-  { kind: 'CALL_OUT', label: 'Call-out' },
-  { kind: 'INSPECTION', label: 'Inspection' },
-  { kind: 'LABOUR', label: 'Labour' },
   { kind: 'PART', label: 'Part' },
+  { kind: 'LABOUR', label: 'Labour' },
+  { kind: 'CONSUMABLE', label: 'Consumable' },
   { kind: 'OTHER', label: 'Other' },
 ];
 
 export function quoteItemKindLabel(kind: QuoteItemKind) {
   return QUOTE_ITEM_KINDS.find(k => k.kind === kind)!.label;
 }
-
-/** Kinds the customer still owes for if they turn the quote down. */
-const FEE_KINDS: QuoteItemKind[] = ['CALL_OUT', 'INSPECTION'];
 
 export class QuoteValidationError extends Error {
   constructor(message: string) {
@@ -33,6 +29,15 @@ export class StaleQuoteError extends Error {
     super('This quote is no longer current');
     this.name = 'StaleQuoteError';
     Object.setPrototypeOf(this, StaleQuoteError.prototype);
+  }
+}
+
+/** The provider tried to finish while the customer is still deciding on extra work. */
+export class AdditionalQuotePendingError extends Error {
+  constructor() {
+    super('The customer has not answered the additional quote yet');
+    this.name = 'AdditionalQuotePendingError';
+    Object.setPrototypeOf(this, AdditionalQuotePendingError.prototype);
   }
 }
 
@@ -74,25 +79,24 @@ export function sumItems(items: Pick<QuoteItem, 'total'>[]): Cents {
   return items.reduce((sum, item) => sum + item.total, 0);
 }
 
-/** The call-out and inspection part of a quote: owed even if rejected. */
-export function feeTotal(items: QuoteItem[]): Cents {
-  return sumItems(items.filter(item => FEE_KINDS.includes(item.kind)));
+/** Additional quotes on a job, oldest first. */
+export function additionalQuotes(quotes: readonly Quote[], jobId: string) {
+  return quotes.filter(q => q.jobId === jobId && q.kind === 'ADDITIONAL');
 }
 
-const CALL_OUT: QuoteItemInput = {
-  kind: 'CALL_OUT',
-  description: 'Call-out fee',
-  quantity: 1,
-  unitPrice: kes(1000),
-};
+export function hasPendingAdditionalQuote(
+  quotes: readonly Quote[],
+  jobId: string,
+) {
+  return additionalQuotes(quotes, jobId).some(q => q.status === 'PENDING');
+}
 
 /**
- * Typical quotes per category. Simulated providers send these, and real
- * providers can start from them in the quote builder.
+ * Typical repair quotes per category. Simulated providers send these, and
+ * real providers can start from them in the quote builder.
  */
 const SAMPLE_ITEMS: Record<string, QuoteItemInput[]> = {
   brakes: [
-    CALL_OUT,
     {
       kind: 'PART',
       description: 'Front brake pads',
@@ -106,29 +110,7 @@ const SAMPLE_ITEMS: Record<string, QuoteItemInput[]> = {
       unitPrice: kes(2000),
     },
   ],
-  brake_service: [
-    CALL_OUT,
-    {
-      kind: 'PART',
-      description: 'Brake fluid (DOT 4, 1L)',
-      quantity: 1,
-      unitPrice: kes(1200),
-    },
-    {
-      kind: 'LABOUR',
-      description: 'Brake service and fluid flush',
-      quantity: 1,
-      unitPrice: kes(2500),
-    },
-  ],
   engine: [
-    CALL_OUT,
-    {
-      kind: 'INSPECTION',
-      description: 'Engine diagnostic scan',
-      quantity: 1,
-      unitPrice: kes(1500),
-    },
     {
       kind: 'PART',
       description: 'Spark plugs',
@@ -143,13 +125,6 @@ const SAMPLE_ITEMS: Record<string, QuoteItemInput[]> = {
     },
   ],
   electrical: [
-    CALL_OUT,
-    {
-      kind: 'INSPECTION',
-      description: 'Battery and charging test',
-      quantity: 1,
-      unitPrice: kes(800),
-    },
     {
       kind: 'PART',
       description: 'Battery (70Ah)',
@@ -163,36 +138,28 @@ const SAMPLE_ITEMS: Record<string, QuoteItemInput[]> = {
       unitPrice: kes(1000),
     },
   ],
-  oil_service: [
-    CALL_OUT,
+  suspension: [
     {
       kind: 'PART',
-      description: 'Engine oil 5W-30 (4L)',
-      quantity: 1,
-      unitPrice: kes(3800),
-    },
-    {
-      kind: 'PART',
-      description: 'Oil filter',
-      quantity: 1,
-      unitPrice: kes(900),
+      description: 'Front shock absorbers',
+      quantity: 2,
+      unitPrice: kes(6500),
     },
     {
       kind: 'LABOUR',
-      description: 'Oil and filter change',
+      description: 'Replace front shocks',
       quantity: 1,
-      unitPrice: kes(1000),
+      unitPrice: kes(3500),
     },
   ],
 };
 
 const DEFAULT_ITEMS: QuoteItemInput[] = [
-  CALL_OUT,
   {
-    kind: 'INSPECTION',
-    description: 'Inspection',
+    kind: 'PART',
+    description: 'Replacement part',
     quantity: 1,
-    unitPrice: kes(1000),
+    unitPrice: kes(3000),
   },
   {
     kind: 'LABOUR',

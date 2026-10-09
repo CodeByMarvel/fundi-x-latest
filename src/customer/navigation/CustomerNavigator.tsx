@@ -1,7 +1,6 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { JobTrackingScreen } from '../jobs/JobTrackingScreen';
 import { RequestFlowScreen } from '../request/RequestFlowScreen';
-import { RequestSubmittedScreen } from '../request/RequestSubmittedScreen';
 import type { RequestType } from '../request/types';
 import { CustomerTabs } from './CustomerTabs';
 
@@ -9,7 +8,6 @@ export type CustomerStackParamList = {
   Tabs: undefined;
   /** Optionally start with the job already chosen, e.g. from Services. */
   RequestFlow: { requestType: RequestType; categoryId: string } | undefined;
-  RequestSubmitted: { jobId: string };
   JobTracking: { jobId: string };
 };
 
@@ -27,11 +25,6 @@ export function CustomerNavigator() {
         name="RequestFlow"
         component={RequestFlowScreen}
         options={{ gestureEnabled: false, animation: 'slide_from_bottom' }}
-      />
-      <Stack.Screen
-        name="RequestSubmitted"
-        component={RequestSubmittedScreen}
-        options={{ gestureEnabled: false, animation: 'fade' }}
       />
       <Stack.Screen name="JobTracking" component={JobTrackingScreen} />
     </Stack.Navigator>

@@ -1,5 +1,6 @@
+import { BillingService } from '../domain/billing/BillingService';
 import { JobRepository } from '../domain/jobs/JobRepository';
-import { PaymentService } from '../domain/payments/PaymentService';
+import { PricingService } from '../domain/pricing/PricingService';
 import { ProviderRepository } from '../domain/providers/ProviderRepository';
 import { createMockBackend } from './mock/mockBackend';
 
@@ -13,7 +14,8 @@ import { createMockBackend } from './mock/mockBackend';
 const backend = createMockBackend({ botProviderIds: ['p2', 'p3'] });
 
 export const jobRepository: JobRepository = backend.jobs;
-export const paymentService: PaymentService = backend.payments;
+export const billingService: BillingService = backend.billing;
+export const pricingService: PricingService = backend.pricing;
 export const providerRepository: ProviderRepository = backend.providers;
 
 /**

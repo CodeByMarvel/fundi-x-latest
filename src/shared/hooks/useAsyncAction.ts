@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { JobTransitionError } from '../../domain/jobs/transitions';
-import { PaymentError } from '../../domain/payments/types';
+import { PaymentError } from '../../domain/billing/types';
+import { PriceChangedError } from '../../domain/pricing/PricingService';
 import {
+  AdditionalQuotePendingError,
   QuoteValidationError,
   StaleQuoteError,
 } from '../../domain/quotes/quotes';
@@ -51,6 +53,18 @@ function describeError(error: unknown): [string, string] {
   }
   if (error instanceof QuoteValidationError || error instanceof PaymentError) {
     return ['Please check', error.message];
+  }
+  if (error instanceof AdditionalQuotePendingError) {
+    return [
+      'Waiting for the customer',
+      'They need to answer your extra quote before you can finish the job.',
+    ];
+  }
+  if (error instanceof PriceChangedError) {
+    return [
+      'The price has been updated',
+      'Please check the new price and try again.',
+    ];
   }
   if (error instanceof StaleQuoteError) {
     return [

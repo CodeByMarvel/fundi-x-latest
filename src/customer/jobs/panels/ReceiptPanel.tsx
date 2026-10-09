@@ -1,42 +1,87 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { jobRepository } from '../../../data/backend';
-import { useProvider, useQuote } from '../../../data/useJob';
+import { useJobLedger, useProvider } from '../../../data/useJob';
 import { Job } from '../../../domain/jobs/types';
 import { formatKes } from '../../../domain/money';
 import { Card, textStyles } from '../../../shared/components/Card';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
-import { QuoteItemsList } from '../../../shared/components/QuoteItemsList';
 import { StarRating } from '../../../shared/components/StarRating';
+import { StatusPill } from '../../../shared/components/StatusPill';
 import { TextField } from '../../../shared/components/TextField';
+import { formatDateTime } from '../../../shared/format';
 import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
 import { colors } from '../../../shared/theme/colors';
-import { formatDateTime } from '../../../shared/format';
 
-/** Proof of payment: what was paid, to whom, and the M-Pesa code. */
+/** Proof of payment: every charge, and every M-Pesa payment against it. */
 export function ReceiptPanel({ job }: { job: Job }) {
-  const quote = useQuote(job.quoteId);
+  const ledger = useJobLedger(job.id);
   const provider = useProvider(job.providerId);
-  if (!job.payment) {
+  if (ledger.payments.length === 0) {
     return null;
   }
-  const items =
-    job.chargeType === 'INSPECTION_ONLY'
-      ? quote?.items.filter(
-          i => i.kind === 'CALL_OUT' || i.kind === 'INSPECTION',
-        )
-      : quote?.items;
 
   return (
     <Card title="Receipt">
-      <Row label="Paid" value={formatKes(job.payment.amount)} strong />
-      <Row label="M-Pesa code" value={job.payment.receiptNumber} />
-      <Row label="Date" value={formatDateTime(job.payment.paidAt)} />
-      {provider && <Row label="Fundi" value={provider.name} />}
-      {items && (
-        <View style={styles.items}>
-          <QuoteItemsList items={items} totalLabel="Total paid" />
+      {ledger.charges.map(c => (
+        <Row key={c.id} label={c.description} value={formatKes(c.amount)} />
+      ))}
+      <View style={styles.divider} />
+      {ledger.payments.map(p => (
+        <View key={p.id}>
+          <Row
+            label={
+              p.purpose === 'CALL_OUT' ? 'Paid: call-out' : 'Paid: service'
+            }
+            value={formatKes(p.amount)}
+          />
+          <Text style={styles.meta}>
+            M-Pesa {p.receiptNumber} · {formatDateTime(p.updatedAt)}
+          </Text>
         </View>
+      ))}
+      <Row label="Total paid" value={formatKes(ledger.totalPaid)} strong />
+      {provider && <Text style={styles.meta}>Service by {provider.name}</Text>}
+    </Card>
+  );
+}
+
+/**
+ * For a cancelled job: what happened to the money already paid. Refunds
+ * and payouts are separate records, so this reads them rather than guessing.
+ */
+export function MoneyOutcomePanel({ job }: { job: Job }) {
+  const ledger = useJobLedger(job.id);
+  if (ledger.payments.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card title="Your money">
+      {ledger.refunds.map(r => (
+        <View key={r.id} style={styles.row}>
+          <Text style={[textStyles.primary, styles.grow]}>
+            Refund of {formatKes(r.amount)} to your M-Pesa
+          </Text>
+          <StatusPill
+            label={r.status === 'SUCCESS' ? 'Sent' : 'Processing'}
+            tone={r.status === 'SUCCESS' ? 'success' : 'warning'}
+          />
+        </View>
+      ))}
+      {ledger.release && (
+        <Text style={textStyles.secondary}>
+          Your {formatKes(ledger.release.gross)} call-out paid for your fundi's
+          trip
+          {job.cancellation?.reason === 'quote_declined' && ' and inspection'},
+          so it isn't refundable.
+        </Text>
+      )}
+      {ledger.refunds.length === 0 && !ledger.release && (
+        <Text style={textStyles.secondary}>
+          Your {formatKes(ledger.totalPaid)} is being held while Fundi-X support
+          decides on your case.
+        </Text>
       )}
     </Card>
   );
@@ -93,7 +138,7 @@ function Row({
 }) {
   return (
     <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, strong && styles.strongLabel]}>{label}</Text>
       <Text style={[styles.value, strong && styles.strong]}>{value}</Text>
     </View>
   );
@@ -103,11 +148,20 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
+    gap: 12,
+  },
+  grow: {
+    flex: 1,
   },
   label: {
+    flex: 1,
     fontSize: 14,
     color: colors.textGrey,
+  },
+  strongLabel: {
+    fontWeight: '700',
+    color: colors.textDark,
   },
   value: {
     fontSize: 15,
@@ -118,10 +172,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
   },
-  items: {
-    marginTop: 4,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
+  meta: {
+    fontSize: 12,
+    color: colors.textLight,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.divider,
   },
 });

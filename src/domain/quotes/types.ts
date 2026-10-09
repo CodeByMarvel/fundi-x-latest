@@ -1,11 +1,11 @@
 import type { Cents } from '../money';
 
-export type QuoteItemKind =
-  | 'CALL_OUT'
-  | 'INSPECTION'
-  | 'LABOUR'
-  | 'PART'
-  | 'OTHER';
+/**
+ * What a quote line is for. There's no call-out or inspection line: the
+ * call-out fee (which covers both) is set by Fundi-X at booking, never quoted
+ * by a provider.
+ */
+export type QuoteItemKind = 'PART' | 'LABOUR' | 'CONSUMABLE' | 'OTHER';
 
 export type QuoteItem = {
   id: string;
@@ -17,11 +17,20 @@ export type QuoteItem = {
   total: Cents;
 };
 
-/** What a provider fills in; ids and totals are worked out for them. */
+/** What gets filled in; ids and totals are worked out from it. */
 export type QuoteItemInput = Pick<
   QuoteItem,
   'kind' | 'description' | 'quantity' | 'unitPrice'
 >;
+
+/**
+ * BASE: the main price for the job, from Fundi-X (fixed-price work) or the
+ * provider (after diagnosis). ADDITIONAL: extra work the provider found on
+ * site, added on top of the base without changing it.
+ */
+export type QuoteKind = 'BASE' | 'ADDITIONAL';
+
+export type QuoteIssuer = 'FUNDI_X' | 'PROVIDER';
 
 /**
  * PENDING: waiting for the customer. SUPERSEDED: the provider withdrew it to
@@ -32,13 +41,20 @@ export type QuoteStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
 export type Quote = {
   id: string;
   jobId: string;
-  providerId: string;
-  /** 1 for the first quote on a job, 2 after one revision, and so on. */
+  kind: QuoteKind;
+  issuedBy: QuoteIssuer;
+  /** Set for provider quotes. */
+  providerId?: string;
+  /** 1 for the first BASE quote on a job, 2 after one revision, and so on. */
   version: number;
   status: QuoteStatus;
   items: QuoteItem[];
   total: Cents;
+  /** Note to the customer. */
   note?: string;
+  /** ADDITIONAL: why the extra work is needed. */
+  reason?: string;
   createdAt: string;
+  /** When the customer approved or rejected it. */
   respondedAt?: string;
 };

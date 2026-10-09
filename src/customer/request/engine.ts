@@ -1,4 +1,4 @@
-import type { CreateJobInput } from '../../domain/jobs/types';
+import type { JobRequestDetails } from '../../domain/jobs/types';
 import { getCategory } from './data/categories';
 import { QUESTIONS } from './data/questions';
 import { Answers, RequestDraft, Vehicle } from './types';
@@ -178,14 +178,14 @@ export function applyChange(
 }
 
 /**
- * Turns a finished draft into what the job repository needs. The draft's
- * fields are optional while the customer fills it in; this is where we
- * insist they're all there.
+ * Turns a finished draft into the job details that pricing and booking
+ * need. The draft's fields are optional while the customer fills it in;
+ * this is where we insist they're all there.
  */
-export function buildCreateJobInput(
+export function buildJobDetails(
   draft: RequestDraft,
   vehicle?: Vehicle,
-): CreateJobInput {
+): JobRequestDetails {
   const { requestType, categoryId, drivability, location, urgency } = draft;
   if (
     !requestType ||

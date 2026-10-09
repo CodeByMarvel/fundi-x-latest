@@ -2,7 +2,7 @@ import { Smartphone } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { simulatedPhone } from '../../../data/backend';
 import { formatKes } from '../../../domain/money';
-import { Payment } from '../../../domain/payments/types';
+import { Payment } from '../../../domain/billing/types';
 import { colors } from '../../../shared/theme/colors';
 
 /**

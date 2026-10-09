@@ -68,21 +68,36 @@ function toInput(item: DraftItem): QuoteItemInput {
 
 export function QuoteBuilderScreen({ navigation, route }: Props) {
   const { top, bottom } = useSafeAreaInsets();
-  const job = useJob(route.params.jobId);
-  // When revising, start from the withdrawn quote.
-  const previous = useQuote(job?.quoteId);
+  const { jobId, mode } = route.params;
+  const additional = mode === 'additional';
+  const job = useJob(jobId);
+  // When revising the main quote, start from the withdrawn version.
+  const base = useQuote(job?.baseQuoteId);
+  const previous =
+    !additional && base?.status === 'SUPERSEDED' ? base : undefined;
   const [items, setItems] = useState<DraftItem[]>(() =>
-    (previous?.items ?? sampleQuoteItems('').slice(0, 1)).map(toDraft),
+    previous
+      ? previous.items.map(toDraft)
+      : [
+          toDraft({
+            kind: additional ? 'PART' : 'LABOUR',
+            description: '',
+            quantity: 1,
+            unitPrice: 0,
+          }),
+        ],
   );
   const [note, setNote] = useState(previous?.note ?? '');
+  /** Why extra work is needed (additional quotes only). */
+  const [reason, setReason] = useState('');
   const [error, setError] = useState<string>();
   const { pending, run } = useAsyncAction<'send'>();
 
   if (!job) {
     return null;
   }
-  // The customer may have cancelled while the provider was typing.
-  const canSend = job.status === 'DIAGNOSING';
+  // The job may have moved on while the provider was typing.
+  const canSend = job.status === (additional ? 'IN_PROGRESS' : 'DIAGNOSING');
   const inputs = items.map(toInput);
   const total = inputs.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
 
@@ -93,14 +108,31 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
 
   const send = () => {
     try {
-      // Same check the backend runs, done first for an instant message.
+      // Same checks the backend runs, done first for an instant message.
+      if (additional && !reason.trim()) {
+        throw new QuoteValidationError('Say why the extra work is needed.');
+      }
       validateQuoteItems(inputs);
     } catch (e) {
       setError(e instanceof QuoteValidationError ? e.message : String(e));
       return;
     }
     run('send', async () => {
-      await jobRepository.sendQuote(job.id, CURRENT_PROVIDER_ID, inputs, note);
+      if (additional) {
+        await jobRepository.raiseAdditionalQuote(
+          job.id,
+          CURRENT_PROVIDER_ID,
+          inputs,
+          reason,
+        );
+      } else {
+        await jobRepository.sendQuote(
+          job.id,
+          CURRENT_PROVIDER_ID,
+          inputs,
+          note,
+        );
+      }
       navigation.goBack();
     });
   };
@@ -111,7 +143,9 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
       style={[styles.screen, { paddingTop: top }]}
     >
       <ScreenHeader
-        title={previous ? 'Update quote' : 'New quote'}
+        title={
+          additional ? 'Extra work' : previous ? 'Update quote' : 'New quote'
+        }
         onBack={() => navigation.goBack()}
       />
 
@@ -121,21 +155,34 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
       >
         <Text style={styles.heading}>{getCategory(job.categoryId)?.label}</Text>
         <Text style={textStyles.secondary}>
-          List each charge. The call-out and inspection fees are what the
-          customer pays if they decline the rest.
+          {additional
+            ? 'Quote only the extra work. The agreed work and its price stay as they are, and the customer decides on this separately.'
+            : "List the parts and labour for the repair. Your call-out is already paid by the customer, so don't include it."}
         </Text>
 
-        <Pressable
-          style={styles.suggest}
-          onPress={() =>
-            setItems(sampleQuoteItems(job.categoryId).map(toDraft))
-          }
-        >
-          <Sparkles color={colors.primary} size={16} />
-          <Text style={styles.suggestText}>
-            Use a typical quote for this job
-          </Text>
-        </Pressable>
+        {additional ? (
+          <TextField
+            label="Why is this needed?"
+            value={reason}
+            onChangeText={text => {
+              setError(undefined);
+              setReason(text);
+            }}
+            placeholder="e.g. Front brake pads are down to 2 mm"
+          />
+        ) : (
+          <Pressable
+            style={styles.suggest}
+            onPress={() =>
+              setItems(sampleQuoteItems(job.categoryId).map(toDraft))
+            }
+          >
+            <Sparkles color={colors.primary} size={16} />
+            <Text style={styles.suggestText}>
+              Use a typical quote for this job
+            </Text>
+          </Pressable>
+        )}
 
         {items.map((item, index) => (
           <Card
@@ -228,13 +275,15 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
           }
         />
 
-        <TextField
-          label="Note for the customer (optional)"
-          multiline
-          value={note}
-          onChangeText={setNote}
-          placeholder="e.g. The pads are worn down to the metal"
-        />
+        {!additional && (
+          <TextField
+            label="Note for the customer (optional)"
+            multiline
+            value={note}
+            onChangeText={setNote}
+            placeholder="e.g. The pads are worn down to the metal"
+          />
+        )}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: bottom + 12 }]}>
@@ -249,7 +298,7 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
           <Text style={styles.total}>{formatKes(total)}</Text>
         </View>
         <PrimaryButton
-          label="Send quote to customer"
+          label={additional ? 'Send extra quote' : 'Send quote to customer'}
           onPress={send}
           loading={pending === 'send'}
           disabled={!canSend}

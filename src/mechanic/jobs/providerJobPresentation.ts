@@ -18,6 +18,11 @@ export type ProviderStatusView = {
  * customer sees, worded for the person doing the work.
  */
 const PROVIDER_STATUS: Record<JobStatus, ProviderStatusView> = {
+  CALL_OUT_PAYMENT_PENDING: {
+    title: 'Not booked yet',
+    hint: 'The customer hasn’t paid the call-out.',
+    tone: 'stopped',
+  },
   SEARCHING: {
     title: 'Back to searching',
     hint: 'This job is being offered to other fundis.',
@@ -68,14 +73,9 @@ const PROVIDER_STATUS: Record<JobStatus, ProviderStatusView> = {
     hint: 'The customer is paying with M-Pesa.',
     tone: 'warning',
   },
-  PAID: {
-    title: 'Payment received',
-    hint: 'Your earnings are on the way.',
-    tone: 'success',
-  },
   COMPLETED: {
     title: 'Job completed',
-    hint: 'Nice work!',
+    hint: 'Paid in full. Your earnings have been released.',
     tone: 'success',
   },
   CANCELLED: {
@@ -91,11 +91,13 @@ const PROVIDER_STATUS: Record<JobStatus, ProviderStatusView> = {
 };
 
 const CANCELLED_BY: Record<CancellationReason, string> = {
+  call_out_unpaid: 'The booking expired before it was paid.',
   customer_cancelled: 'The customer cancelled this job.',
-  provider_cancelled: 'You cancelled this job.',
   no_provider_available: 'No fundi was available.',
-  quote_rejected: 'The customer declined your quote.',
-  dispute_resolved: 'Support closed this job after a dispute.',
+  quote_declined: 'The customer declined your quote. You keep the call-out.',
+  customer_no_show:
+    'The customer wasn’t at the location. You keep the call-out.',
+  dispute_closed: 'Support closed this job after a dispute.',
 };
 
 /** The status view, adjusted for what else we know about the job. */
@@ -104,14 +106,17 @@ export function providerJobView(job: Job): ProviderStatusView {
   if (job.status === 'CANCELLED' && job.cancellation) {
     return { ...base, hint: CANCELLED_BY[job.cancellation.reason] };
   }
+  if (job.status === 'ARRIVED' && job.pricingMode === 'FIXED') {
+    return { ...base, hint: 'Start the agreed service when you’re ready.' };
+  }
   if (
-    job.status === 'PAYMENT_PENDING' &&
-    job.chargeType === 'INSPECTION_ONLY'
+    job.status === 'CANCELLED' &&
+    job.cancellation?.reason === 'customer_cancelled' &&
+    job.cancellation.fromStatus === 'EN_ROUTE'
   ) {
     return {
       ...base,
-      title: 'Quote declined',
-      hint: 'The customer is paying the call-out and inspection fee only.',
+      hint: 'The customer cancelled while you were on the way. You keep the call-out.',
     };
   }
   if (job.status === 'IN_PROGRESS' && job.dispute?.resolution) {

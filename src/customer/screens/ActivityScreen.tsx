@@ -4,7 +4,7 @@ import { ChevronRight, ClipboardList } from 'lucide-react-native';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useJobs, useProvider } from '../../data/useJob';
+import { useJobLedger, useJobs, useProvider } from '../../data/useJob';
 import { isTerminalStatus } from '../../domain/jobs/transitions';
 import { Job } from '../../domain/jobs/types';
 import { formatKes } from '../../domain/money';
@@ -89,7 +89,10 @@ export function ActivityScreen() {
 
 function JobRow({ job, onPress }: { job: Job; onPress: () => void }) {
   const provider = useProvider(job.providerId);
+  const ledger = useJobLedger(job.id);
   const view = customerJobView(job);
+  // What the customer is actually out of pocket, after any refunds.
+  const spent = ledger.totalPaid - ledger.totalRefunded;
 
   return (
     <Pressable style={styles.row} onPress={onPress} accessibilityRole="button">
@@ -98,9 +101,7 @@ function JobRow({ job, onPress }: { job: Job; onPress: () => void }) {
           <Text style={styles.service} numberOfLines={1}>
             {getCategory(job.categoryId)?.label}
           </Text>
-          {job.payment && (
-            <Text style={styles.amount}>{formatKes(job.payment.amount)}</Text>
-          )}
+          {spent > 0 && <Text style={styles.amount}>{formatKes(spent)}</Text>}
         </View>
         <Text style={styles.meta} numberOfLines={1}>
           {vehicleName(job.vehicle)} · {job.vehicle.registration}

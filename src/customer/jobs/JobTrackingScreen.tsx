@@ -25,8 +25,16 @@ import { CompletionPanel } from './panels/CompletionPanel';
 import { JobDetailsCard } from './panels/JobDetailsCard';
 import { PaymentPanel } from './panels/PaymentPanel';
 import { ProviderPanel } from './panels/ProviderPanel';
-import { ApprovedWorkPanel, QuoteReviewPanel } from './panels/QuotePanels';
-import { RatingPanel, ReceiptPanel } from './panels/ReceiptPanel';
+import {
+  AdditionalQuotesPanel,
+  AgreedWorkPanel,
+  QuoteReviewPanel,
+} from './panels/QuotePanels';
+import {
+  MoneyOutcomePanel,
+  RatingPanel,
+  ReceiptPanel,
+} from './panels/ReceiptPanel';
 
 type Props = NativeStackScreenProps<CustomerStackParamList, 'JobTracking'>;
 
@@ -64,18 +72,18 @@ export function JobTrackingScreen({ navigation, route }: Props) {
 
   const view = customerJobView(job);
   // The rulebook decides whether cancelling is allowed, not this screen.
-  const canCancel = canTransition(job.status, 'CANCELLED', 'CUSTOMER');
+  const canCancel = canTransition(job, 'CANCELLED', 'CUSTOMER');
 
   const confirmCancel = () =>
     Alert.alert(
-      'Cancel this request?',
-      job.status === 'SEARCHING' || job.status === 'OFFERED'
-        ? "We'll stop looking for a fundi."
-        : 'Your fundi is already on the job. Please only cancel if you really need to.',
+      job.status === 'CALL_OUT_PAYMENT_PENDING'
+        ? 'Cancel this booking?'
+        : 'Cancel this request?',
+      cancelWarning(job),
       [
-        { text: 'Keep request', style: 'cancel' },
+        { text: 'Keep it', style: 'cancel' },
         {
-          text: 'Cancel request',
+          text: 'Cancel',
           style: 'destructive',
           onPress: () => run('cancel', () => jobRepository.cancelJob(job.id)),
         },
@@ -127,7 +135,11 @@ export function JobTrackingScreen({ navigation, route }: Props) {
         {canCancel && (
           <PrimaryButton
             variant="ghost"
-            label="Cancel request"
+            label={
+              job.status === 'CALL_OUT_PAYMENT_PENDING'
+                ? 'Cancel booking'
+                : 'Cancel request'
+            }
             onPress={confirmCancel}
             loading={pending === 'cancel'}
           />
@@ -140,16 +152,33 @@ export function JobTrackingScreen({ navigation, route }: Props) {
 /** The part of the screen that changes most from stage to stage. */
 function StagePanel({ job }: { job: Job }) {
   switch (job.status) {
+    case 'CALL_OUT_PAYMENT_PENDING':
+      return (
+        <>
+          <AgreedWorkPanel job={job} title="Your fixed-price service" />
+          <PaymentPanel job={job} />
+        </>
+      );
+    case 'SEARCHING':
+    case 'OFFERED':
+    case 'ACCEPTED':
+    case 'EN_ROUTE':
+    case 'ARRIVED':
+      // Fixed-price jobs: remind them what was agreed (renders nothing otherwise).
+      return <AgreedWorkPanel job={job} title="Your fixed-price service" />;
     case 'QUOTE_SENT':
       return <QuoteReviewPanel job={job} />;
     case 'IN_PROGRESS':
-      return <ApprovedWorkPanel job={job} />;
+      return (
+        <>
+          <AdditionalQuotesPanel job={job} />
+          <AgreedWorkPanel job={job} />
+        </>
+      );
     case 'AWAITING_CONFIRMATION':
       return <CompletionPanel job={job} />;
     case 'PAYMENT_PENDING':
       return <PaymentPanel job={job} />;
-    case 'PAID':
-      return <ReceiptPanel job={job} />;
     case 'COMPLETED':
       return (
         <>
@@ -158,11 +187,28 @@ function StagePanel({ job }: { job: Job }) {
         </>
       );
     case 'CANCELLED':
-      return <CancelledPanel job={job} />;
+      return (
+        <>
+          <MoneyOutcomePanel job={job} />
+          <CancelledPanel job={job} />
+        </>
+      );
     case 'DISPUTED':
       return <DisputePanel job={job} />;
     default:
       return null;
+  }
+}
+
+/** What cancelling costs, which depends on how far the job has got. */
+function cancelWarning(job: Job) {
+  switch (job.status) {
+    case 'CALL_OUT_PAYMENT_PENDING':
+      return "Nothing has been paid yet, so there's nothing to refund.";
+    case 'EN_ROUTE':
+      return 'Your fundi is already on the way, so the call-out fee will not be refunded.';
+    default:
+      return "Your fundi hasn't set off yet, so your call-out fee will be refunded in full.";
   }
 }
 
