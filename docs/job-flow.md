@@ -276,7 +276,7 @@ function (`settlementFor`) decides; the backend records the result.
 
 - **Release** = paid to the assigned provider, minus commission.
 - **Commission (CONFIGURABLE):** per money purpose (`CALL_OUT`, `SERVICE`) in
-  basis points; default 1000 bp (10%) for both. Taken only on released money.
+  basis points; default 2000 bp (20%) for both. Taken only on released money.
 - **Unpaid charges on a closed job are void** (principle 8). There are no
   collections in v1.0.
 - **Money that arrives after a job closed** (e.g. the customer completes the

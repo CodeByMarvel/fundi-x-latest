@@ -59,7 +59,7 @@ import {
 } from '../../domain/quotes/quotes';
 import { Quote, QuoteItemInput } from '../../domain/quotes/types';
 import { delay } from './delay';
-import { calculateEstimate } from './mockPricing';
+import { calculateEstimate } from '../../domain/pricing/engine';
 import { mockProviders } from './mockProviders';
 import { startProviderBots } from './providerBots';
 
@@ -366,18 +366,8 @@ export function createMockBackend({
       eventId: makeId('evt'),
       metadata,
     });
+    // applyTransition already dropped fields the new status doesn't use.
     const next: Job = { ...job, ...changes };
-    if (to !== 'OFFERED') {
-      delete next.offeredProviderId;
-      delete next.offerExpiresAt;
-    }
-    if (to !== 'EN_ROUTE') {
-      delete next.etaMinutes;
-    }
-    if (to === 'SEARCHING') {
-      // Back to matching: nobody is assigned any more.
-      delete next.providerId;
-    }
 
     putJob(next);
     events.set(jobId, [...(events.get(jobId) ?? []), event]);

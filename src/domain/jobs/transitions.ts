@@ -154,6 +154,27 @@ export function isTerminalStatus(status: JobStatus): boolean {
   return Object.keys(TRANSITIONS[status]).length === 0;
 }
 
+/**
+ * Drops fields that only make sense in some statuses, so a job never says
+ * it's "offered to Brian" after being cancelled, or shows an ETA after the
+ * provider has arrived. Callers add new values for the new status after.
+ */
+function clearStaleFields(job: Job): Job {
+  const next = { ...job };
+  if (next.status !== 'OFFERED') {
+    delete next.offeredProviderId;
+    delete next.offerExpiresAt;
+  }
+  if (next.status !== 'EN_ROUTE') {
+    delete next.etaMinutes;
+  }
+  if (next.status === 'SEARCHING') {
+    // Back to matching: nobody is assigned any more.
+    delete next.providerId;
+  }
+  return next;
+}
+
 type TransitionContext = {
   /** ISO timestamp for the change. Passed in so this function stays pure. */
   now: string;
@@ -186,5 +207,8 @@ export function applyTransition(
     ...(metadata && { metadata }),
   };
 
-  return { job: { ...job, status: to, updatedAt: now }, event };
+  return {
+    job: clearStaleFields({ ...job, status: to, updatedAt: now }),
+    event,
+  };
 }

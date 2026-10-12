@@ -64,8 +64,8 @@ describe('ledger', () => {
   });
 
   it('takes commission in whole cents', () => {
-    expect(commissionOn(kes(800), 'CALL_OUT')).toBe(kes(80));
-    expect(commissionOn(333, 'SERVICE')).toBe(33);
+    expect(commissionOn(kes(800), 'CALL_OUT')).toBe(kes(160));
+    expect(commissionOn(333, 'SERVICE')).toBe(67);
   });
 });
 

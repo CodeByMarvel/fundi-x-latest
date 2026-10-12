@@ -19,7 +19,7 @@ import {
   jobRepository,
   simulatedPhone,
 } from '../src/data/backend';
-import { calculateEstimate } from '../src/data/mock/mockPricing';
+import { calculateEstimate } from '../src/domain/pricing/engine';
 import { JobRequestDetails } from '../src/domain/jobs/types';
 import { LATE_GRACE_MS } from '../src/domain/jobs/rules';
 import { line } from '../src/domain/quotes/quotes';

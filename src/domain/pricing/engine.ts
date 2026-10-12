@@ -1,8 +1,8 @@
-import { JobRequestDetails } from '../../domain/jobs/types';
-import { Cents, kes } from '../../domain/money';
-import { PriceEstimate } from '../../domain/pricing/PricingService';
-import { line } from '../../domain/quotes/quotes';
-import { QuoteItemInput } from '../../domain/quotes/types';
+import { JobRequestDetails } from '../jobs/types';
+import { Cents, kes } from '../money';
+import { PriceEstimate } from './PricingService';
+import { line } from '../quotes/quotes';
+import { QuoteItemInput } from '../quotes/types';
 
 /**
  * Stands in for the backend's `call_out_rules` table. Flat on purpose: H3

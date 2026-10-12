@@ -14,7 +14,7 @@ import {
   STK_SEND_MS,
   STK_TIMEOUT_MS,
 } from '../src/data/mock/mockBackend';
-import { CALL_OUT_FEE, calculateEstimate } from '../src/data/mock/mockPricing';
+import { CALL_OUT_FEE, calculateEstimate } from '../src/domain/pricing/engine';
 import { BOT_TIMINGS } from '../src/data/mock/providerBots';
 import { balanceDue } from '../src/domain/billing/ledger';
 import { PaymentError } from '../src/domain/billing/types';
@@ -364,7 +364,7 @@ describe('customer cancelling', () => {
     const { b, job } = await enRouteJob();
     await run(b.jobs.cancelJob(job.id));
     expect(b.billing.getReleasesSnapshot()).toEqual([
-      expect.objectContaining({ gross: CALL_OUT, net: kes(720) }),
+      expect.objectContaining({ gross: CALL_OUT, net: kes(640) }),
     ]);
   });
 
@@ -422,7 +422,7 @@ describe('customer no-show', () => {
     );
     await jest.advanceTimersByTimeAsync(NO_SHOW_WAIT_MS);
     await run(b.jobs.reportCustomerNoShow(job.id, 'p1'));
-    expect(b.billing.getReleasesSnapshot()[0].net).toBe(kes(720));
+    expect(b.billing.getReleasesSnapshot()[0].net).toBe(kes(640));
   });
 });
 
@@ -565,7 +565,7 @@ describe('completion', () => {
     const [release] = b.billing.getReleasesSnapshot();
     expect(release.lines.map(l => l.purpose)).toEqual(['CALL_OUT', 'SERVICE']);
     expect(release.gross).toBe(CALL_OUT + ITEMS_TOTAL);
-    expect(release.commission).toBe(kes(80) + kes(550));
+    expect(release.commission).toBe(kes(160) + kes(1100));
     expect(release.net).toBe(release.gross - release.commission);
   });
 

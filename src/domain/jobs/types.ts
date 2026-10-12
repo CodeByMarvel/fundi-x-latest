@@ -6,7 +6,7 @@ import type {
   ScheduledFor,
   Urgency,
   Vehicle,
-} from '../../customer/request/types';
+} from './request';
 import type { Cents } from '../money';
 
 /**
