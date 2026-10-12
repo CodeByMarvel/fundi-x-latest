@@ -6,7 +6,7 @@ import type {
   ScheduledFor,
   Urgency,
   Vehicle,
-} from '../../customer/request/types';
+} from './request';
 import type { Cents } from '../money';
 
 /**
@@ -25,9 +25,9 @@ export type JobStatus =
   | 'ARRIVED'
   | 'DIAGNOSING'
   | 'QUOTE_SENT'
+  | 'SERVICE_PAYMENT_PENDING'
   | 'IN_PROGRESS'
   | 'AWAITING_CONFIRMATION'
-  | 'PAYMENT_PENDING'
   | 'COMPLETED'
   | 'CANCELLED'
   | 'DISPUTED';
@@ -61,6 +61,11 @@ export type Job = {
   offerExpiresAt?: string;
   /** Live estimate while the provider is EN_ROUTE. */
   etaMinutes?: number;
+  /**
+   * The arrival time promised when the trip started. Fixed once set: the
+   * late-provider rule measures from it, not from the live ETA.
+   */
+  expectedArrivalAt?: string;
   /** When the provider reached the vehicle; starts the no-show wait. */
   arrivedAt?: string;
   /** Set when an assigned provider withdrew and the job went back to searching. */
@@ -99,9 +104,14 @@ export type CancellationReason =
   | 'call_out_unpaid'
   | 'customer_cancelled'
   | 'no_provider_available'
+  /** Customer cancelled after the arrival time + grace had passed. */
+  | 'provider_late'
   | 'quote_declined'
+  /** The agreed price wasn't paid into escrow in time. */
+  | 'service_unpaid'
   | 'customer_no_show'
-  | 'dispute_closed';
+  /** Support settled a dispute with a split (see DisputeResolution). */
+  | 'dispute_resolved';
 
 export type JobCancellation = {
   by: JobActor;
@@ -122,8 +132,27 @@ export type JobReassignment = {
 export type JobDispute = {
   reason: string;
   /** Filled in by support once they've reviewed it. */
-  resolution?: string;
+  resolution?: DisputeResolution;
 };
+
+/**
+ * Support's decision on a dispute. REWORK: the provider fixes it.
+ * UPHOLD_PROVIDER: the work was fine, normal release. SPLIT: the job closes
+ * and escrow is divided as stated; refund + payout must equal exactly what's
+ * in escrow.
+ */
+export type DisputeResolution =
+  | { outcome: 'REWORK'; note: string; decidedBy: string; at: string }
+  | { outcome: 'UPHOLD_PROVIDER'; note: string; decidedBy: string; at: string }
+  | {
+      outcome: 'SPLIT';
+      customerRefund: Cents;
+      /** Gross, before commission. */
+      providerPayout: Cents;
+      note: string;
+      decidedBy: string;
+      at: string;
+    };
 
 export type JobRating = {
   /** 1 to 5 */

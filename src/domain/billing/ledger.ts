@@ -1,4 +1,4 @@
-import { Job } from '../jobs/types';
+import { Job, JobStatus } from '../jobs/types';
 import { Cents } from '../money';
 import { Charge, MoneyPurpose, Payment, Refund } from './types';
 
@@ -62,33 +62,52 @@ export function balanceDue(
   );
 }
 
+/** Part (or all) of one payment, going somewhere. */
+export type MoneyMove = { payment: Payment; amount: Cents };
+
 /** What happens to the money in escrow when a job ends. */
 export type Settlement = {
-  /** Payments to send back to the customer. */
-  refund: Payment[];
-  /** Payments to pay out to the provider (minus commission). */
-  release: Payment[];
-  /** True when the rule isn't decided yet: money stays in escrow. */
-  hold: boolean;
+  /** Back to the customer. */
+  refund: MoneyMove[];
+  /** To the provider, before commission. */
+  release: MoneyMove[];
 };
 
+/** Statuses where the provider had set off or was on site. */
+const PROVIDER_COMMITTED: JobStatus[] = [
+  'EN_ROUTE',
+  'ARRIVED',
+  'DIAGNOSING',
+  'SERVICE_PAYMENT_PENDING',
+];
+
+/** Everything the customer has put into escrow for this job. */
+export function escrowTotal(
+  payments: readonly Payment[],
+  jobId: string,
+): Cents {
+  return totalPaid(payments, jobId);
+}
+
 /**
- * The escrow rules from docs/job-flow.md §3.5, as one pure function. Called
- * once, when a job reaches COMPLETED or CANCELLED.
+ * The escrow rules from docs/job-flow.md §8, as one pure function. Called
+ * once, when a job reaches COMPLETED or CANCELLED. Only money actually in
+ * escrow moves; unpaid charges on a closed job are simply void.
  */
 export function settlementFor(
   job: Job,
   payments: readonly Payment[],
 ): Settlement {
   const paid = successfulPayments(payments, job.id);
-  const refundAll: Settlement = { refund: paid, release: [], hold: false };
-  const releaseAll: Settlement = { refund: [], release: paid, hold: false };
+  const whole = (p: Payment): MoneyMove => ({ payment: p, amount: p.amount });
+  const refundAll: Settlement = { refund: paid.map(whole), release: [] };
+  const releaseAll: Settlement = { refund: [], release: paid.map(whole) };
 
   if (job.status === 'COMPLETED') {
     return releaseAll;
   }
   if (job.status !== 'CANCELLED' || !job.cancellation) {
-    return { refund: [], release: [], hold: false };
+    return { refund: [], release: [] };
   }
   // Nobody to pay: always refund.
   if (!job.providerId) {
@@ -98,18 +117,47 @@ export function settlementFor(
   switch (job.cancellation.reason) {
     case 'call_out_unpaid':
     case 'no_provider_available':
+    case 'provider_late':
       return refundAll;
     case 'customer_cancelled':
       // Once the provider has set off, the call-out paid for their trip.
-      return job.cancellation.fromStatus === 'EN_ROUTE'
+      return PROVIDER_COMMITTED.includes(job.cancellation.fromStatus)
         ? releaseAll
         : refundAll;
     case 'quote_declined':
+    case 'service_unpaid':
     case 'customer_no_show':
       // The provider attended: the call-out covered transport and inspection.
       return releaseAll;
-    case 'dispute_closed':
-      // OPEN in the spec: keep it in escrow until a person decides.
-      return { refund: [], release: [], hold: true };
+    case 'dispute_resolved':
+      return splitByResolution(job, paid);
   }
+}
+
+/**
+ * Divides escrow as support decided: the customer's refund comes out of
+ * the service money first, then the call-out; the rest is released.
+ */
+function splitByResolution(job: Job, paid: Payment[]): Settlement {
+  const resolution = job.dispute?.resolution;
+  if (resolution?.outcome !== 'SPLIT') {
+    return { refund: [], release: [] };
+  }
+  let toRefund = resolution.customerRefund;
+  const ordered = [
+    ...paid.filter(p => p.purpose === 'SERVICE'),
+    ...paid.filter(p => p.purpose === 'CALL_OUT'),
+  ];
+  const settlement: Settlement = { refund: [], release: [] };
+  for (const payment of ordered) {
+    const refund = Math.min(toRefund, payment.amount);
+    toRefund -= refund;
+    if (refund > 0) {
+      settlement.refund.push({ payment, amount: refund });
+    }
+    if (payment.amount - refund > 0) {
+      settlement.release.push({ payment, amount: payment.amount - refund });
+    }
+  }
+  return settlement;
 }

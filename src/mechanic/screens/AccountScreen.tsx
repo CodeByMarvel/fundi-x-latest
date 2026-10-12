@@ -1,4 +1,5 @@
 import {
+  ShieldCheck,
   CircleHelp,
   FileText,
   Mail,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react-native';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useProvider } from '../../data/useJob';
+import { useProvider, useReliabilityEvents } from '../../data/useJob';
 import { formatPhone } from '../../domain/billing/types';
 import { Avatar } from '../../shared/components/Avatar';
 import { SectionTitle } from '../../shared/components/SectionTitle';
@@ -29,6 +30,7 @@ export function AccountScreen() {
   const { top } = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
   const provider = useProvider(CURRENT_PROVIDER_ID);
+  const reliability = useReliabilityEvents(CURRENT_PROVIDER_ID);
   const fullName = `${mechanicProfile.firstName} ${mechanicProfile.lastName}`;
 
   return (
@@ -59,6 +61,15 @@ export function AccountScreen() {
               Icon={Star}
               label={`${provider.rating.toFixed(1)} rating`}
               value={`From ${provider.ratingCount} jobs`}
+            />
+            <SettingsRow
+              Icon={ShieldCheck}
+              label="Reliability"
+              value={
+                reliability.length === 0
+                  ? 'No missed or dropped jobs'
+                  : `${reliability.length} recorded: declined, expired, withdrawn or late jobs`
+              }
             />
             <SettingsRow
               Icon={Wrench}

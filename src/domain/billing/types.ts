@@ -34,6 +34,8 @@ export type Payment = {
   id: string;
   jobId: string;
   purpose: MoneyPurpose;
+  /** Set when paying for an additional quote (approve-and-pay). */
+  quoteId?: string;
   method: 'MPESA';
   /** Normalised to 2547XXXXXXXX / 2541XXXXXXXX. */
   phone: string;

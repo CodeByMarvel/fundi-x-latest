@@ -20,6 +20,7 @@ import {
   sampleQuoteItems,
   validateQuoteItems,
 } from '../../domain/quotes/quotes';
+import { codesForKind, OTHER_CODE } from '../../domain/quotes/serviceCodes';
 import { QuoteItemInput, QuoteItemKind } from '../../domain/quotes/types';
 import { Card, textStyles } from '../../shared/components/Card';
 import { PrimaryButton } from '../../shared/components/PrimaryButton';
@@ -38,6 +39,7 @@ type Props = NativeStackScreenProps<MechanicStackParamList, 'QuoteBuilder'>;
  */
 type DraftItem = {
   key: string;
+  serviceCode: string;
   kind: QuoteItemKind;
   description: string;
   quantity: number;
@@ -49,6 +51,7 @@ let nextKey = 1;
 function toDraft(item: QuoteItemInput): DraftItem {
   return {
     key: String(nextKey++),
+    serviceCode: item.serviceCode,
     kind: item.kind,
     description: item.description,
     quantity: item.quantity,
@@ -59,6 +62,7 @@ function toDraft(item: QuoteItemInput): DraftItem {
 function toInput(item: DraftItem): QuoteItemInput {
   const shillings = Number.parseInt(item.shillings.replace(/\D/g, ''), 10);
   return {
+    serviceCode: item.serviceCode,
     kind: item.kind,
     description: item.description,
     quantity: item.quantity,
@@ -80,6 +84,7 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
       ? previous.items.map(toDraft)
       : [
           toDraft({
+            serviceCode: OTHER_CODE,
             kind: additional ? 'PART' : 'LABOUR',
             description: '',
             quantity: 1,
@@ -205,7 +210,10 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
                 <Pressable
                   key={kind}
                   style={[styles.kind, item.kind === kind && styles.kindActive]}
-                  onPress={() => update(item.key, { kind })}
+                  // A new kind means a new list of codes to pick from.
+                  onPress={() =>
+                    update(item.key, { kind, serviceCode: OTHER_CODE })
+                  }
                 >
                   <Text
                     style={[
@@ -218,10 +226,47 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
                 </Pressable>
               ))}
             </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.codes}
+              keyboardShouldPersistTaps="handled"
+            >
+              {[
+                ...codesForKind(item.kind),
+                { code: OTHER_CODE, label: 'Other' },
+              ].map(c => {
+                const active = item.serviceCode === c.code;
+                return (
+                  <Pressable
+                    key={c.code}
+                    style={[styles.code, active && styles.codeActive]}
+                    onPress={() =>
+                      update(item.key, {
+                        serviceCode: c.code,
+                        // Fill in the standard name; Other keeps what's typed.
+                        description:
+                          c.code === OTHER_CODE ? item.description : c.label,
+                      })
+                    }
+                  >
+                    <Text
+                      style={[styles.codeText, active && styles.codeTextActive]}
+                    >
+                      {c.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
             <TextField
               value={item.description}
               onChangeText={description => update(item.key, { description })}
-              placeholder="Description, e.g. Front brake pads"
+              placeholder={
+                item.serviceCode === OTHER_CODE
+                  ? 'Describe it, e.g. Side mirror glass'
+                  : 'Description'
+              }
             />
             <View style={styles.numbers}>
               <View style={styles.stepper}>
@@ -266,6 +311,7 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
             setItems(list => [
               ...list,
               toDraft({
+                serviceCode: OTHER_CODE,
                 kind: 'LABOUR',
                 description: '',
                 quantity: 1,
@@ -359,6 +405,26 @@ const styles = StyleSheet.create({
   },
   kindTextActive: {
     color: colors.primary,
+    fontWeight: '600',
+  },
+  codes: {
+    gap: 6,
+  },
+  code: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+  },
+  codeActive: {
+    backgroundColor: colors.textDark,
+  },
+  codeText: {
+    fontSize: 13,
+    color: colors.textDark,
+  },
+  codeTextActive: {
+    color: colors.surface,
     fontWeight: '600',
   },
   numbers: {

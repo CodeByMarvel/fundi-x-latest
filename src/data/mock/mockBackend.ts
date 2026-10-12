@@ -1,6 +1,11 @@
 import { BillingService } from '../../domain/billing/BillingService';
 import { commissionOn } from '../../domain/billing/commission';
-import { balanceDue, settlementFor } from '../../domain/billing/ledger';
+import {
+  balanceDue,
+  escrowTotal,
+  MoneyMove,
+  settlementFor,
+} from '../../domain/billing/ledger';
 import {
   Charge,
   MoneyPurpose,
@@ -15,7 +20,9 @@ import { JobRepository } from '../../domain/jobs/JobRepository';
 import {
   AUTO_CONFIRM_MS,
   CALL_OUT_PAYMENT_WINDOW_MS,
+  isProviderLate,
   NO_SHOW_WAIT_MS,
+  SERVICE_PAYMENT_WINDOW_MS,
 } from '../../domain/jobs/rules';
 import {
   applyTransition,
@@ -24,6 +31,7 @@ import {
 } from '../../domain/jobs/transitions';
 import {
   CreateJobInput,
+  DisputeResolution,
   Job,
   JobActor,
   JobEvent,
@@ -35,7 +43,11 @@ import {
   PricingService,
 } from '../../domain/pricing/PricingService';
 import { ProviderRepository } from '../../domain/providers/ProviderRepository';
-import { Provider } from '../../domain/providers/types';
+import {
+  Provider,
+  ReliabilityEvent,
+  ReliabilityEventType,
+} from '../../domain/providers/types';
 import {
   AdditionalQuotePendingError,
   buildQuoteItems,
@@ -47,7 +59,7 @@ import {
 } from '../../domain/quotes/quotes';
 import { Quote, QuoteItemInput } from '../../domain/quotes/types';
 import { delay } from './delay';
-import { calculateEstimate } from './mockPricing';
+import { calculateEstimate } from '../../domain/pricing/engine';
 import { mockProviders } from './mockProviders';
 import { startProviderBots } from './providerBots';
 
@@ -75,12 +87,29 @@ export type SimulatedPhone = {
   respondToPaymentPrompt(paymentId: string, response: PhoneResponse): void;
 };
 
+/** What support decides; who decided and when are filled in by the backend. */
+export type DisputeDecision =
+  | { outcome: 'REWORK'; note: string }
+  | { outcome: 'UPHOLD_PROVIDER'; note: string }
+  | {
+      outcome: 'SPLIT';
+      customerRefund: number;
+      providerPayout: number;
+      note: string;
+    };
+
+/** Dev-only: stands in for Fundi-X support's back-office tools. */
+export type SimulatedSupport = {
+  resolveDispute(jobId: string, decision: DisputeDecision): void;
+};
+
 export type MockBackend = {
   jobs: JobRepository;
   billing: BillingService;
   pricing: PricingService;
   providers: ProviderRepository;
   phone: SimulatedPhone;
+  support: SimulatedSupport;
 };
 
 export type MockBackendOptions = {
@@ -125,6 +154,7 @@ export function createMockBackend({
   let payments: readonly Payment[] = [];
   let refunds: readonly Refund[] = [];
   let releases: readonly Release[] = [];
+  let reliabilityEvents: readonly ReliabilityEvent[] = [];
 
   const makeId = (prefix: string) => `${prefix}-${nextId++}`;
   const now = () => new Date().toISOString();
@@ -241,13 +271,17 @@ export function createMockBackend({
   // ---- Escrow ----
 
   /** Starts returning a payment to the customer's M-Pesa. */
-  const refundPayment = (payment: Payment, reason: string) => {
+  const refundPayment = (
+    payment: Payment,
+    reason: string,
+    amount = payment.amount,
+  ) => {
     const at = now();
     const refund: Refund = {
       id: makeId('ref'),
       jobId: payment.jobId,
       paymentId: payment.id,
-      amount: payment.amount,
+      amount,
       reason,
       status: 'PENDING',
       createdAt: at,
@@ -272,15 +306,19 @@ export function createMockBackend({
   const settle = (job: Job) => {
     const { refund, release } = settlementFor(job, payments);
 
-    for (const payment of refund) {
-      refundPayment(payment, job.cancellation?.reason ?? 'job_closed');
+    for (const move of refund) {
+      refundPayment(
+        move.payment,
+        job.cancellation?.reason ?? 'job_closed',
+        move.amount,
+      );
     }
     if (release.length > 0 && job.providerId) {
-      const lines = release.map(p => ({
-        paymentId: p.id,
-        purpose: p.purpose,
-        gross: p.amount,
-        commission: commissionOn(p.amount, p.purpose),
+      const lines = release.map(({ payment, amount }: MoneyMove) => ({
+        paymentId: payment.id,
+        purpose: payment.purpose,
+        gross: amount,
+        commission: commissionOn(amount, payment.purpose),
       }));
       const gross = lines.reduce((s, l) => s + l.gross, 0);
       const commission = lines.reduce((s, l) => s + l.commission, 0);
@@ -328,18 +366,8 @@ export function createMockBackend({
       eventId: makeId('evt'),
       metadata,
     });
+    // applyTransition already dropped fields the new status doesn't use.
     const next: Job = { ...job, ...changes };
-    if (to !== 'OFFERED') {
-      delete next.offeredProviderId;
-      delete next.offerExpiresAt;
-    }
-    if (to !== 'EN_ROUTE') {
-      delete next.etaMinutes;
-    }
-    if (to === 'SEARCHING') {
-      // Back to matching: nobody is assigned any more.
-      delete next.providerId;
-    }
 
     putJob(next);
     events.set(jobId, [...(events.get(jobId) ?? []), event]);
@@ -367,6 +395,18 @@ export function createMockBackend({
     reason: NonNullable<Job['cancellation']>['reason'],
     fromStatus: JobStatus,
   ): JobChanges => ({ cancellation: { by: actor, reason, fromStatus } });
+
+  /** A fact about a provider's reliability (docs/job-flow.md §13). */
+  const recordReliability = (
+    providerId: string,
+    jobId: string,
+    type: ReliabilityEventType,
+  ) => {
+    reliabilityEvents = [
+      ...reliabilityEvents,
+      { id: makeId('rel-evt'), providerId, jobId, type, at: now() },
+    ];
+  };
 
   // ---- Matching (the backend's own background work) ----
 
@@ -435,6 +475,7 @@ export function createMockBackend({
       ) {
         return;
       }
+      recordReliability(provider.id, jobId, 'offer_expired');
       transitionJob(jobId, 'SEARCHING', 'SYSTEM', {
         metadata: { providerId: provider.id, reason: 'offer_expired' },
       });
@@ -472,6 +513,30 @@ export function createMockBackend({
     }, ms);
   };
 
+  /** The agreed price must reach escrow within 30 minutes of being due. */
+  const scheduleServicePaymentDeadline = (
+    jobId: string,
+    ms = SERVICE_PAYMENT_WINDOW_MS,
+  ) => {
+    setTimeout(() => {
+      if (jobs.get(jobId)?.status !== 'SERVICE_PAYMENT_PENDING') {
+        return;
+      }
+      if (payments.some(p => p.jobId === jobId && isInFlight(p))) {
+        scheduleServicePaymentDeadline(jobId, STK_TIMEOUT_MS);
+        return;
+      }
+      transitionJob(jobId, 'CANCELLED', 'SYSTEM', {
+        metadata: { reason: 'service_unpaid' },
+        changes: cancelledBy(
+          'SYSTEM',
+          'service_unpaid',
+          'SERVICE_PAYMENT_PENDING',
+        ),
+      });
+    }, ms);
+  };
+
   /** A customer who doesn't confirm or dispute within 48 h is taken to confirm. */
   const scheduleAutoConfirm = (job: Job) => {
     const enteredAt = job.updatedAt;
@@ -484,8 +549,9 @@ export function createMockBackend({
       ) {
         return;
       }
-      transitionJob(job.id, 'PAYMENT_PENDING', 'SYSTEM', {
+      transitionJob(job.id, 'COMPLETED', 'SYSTEM', {
         metadata: { reason: 'auto_confirmed' },
+        changes: { completedAt: now() },
       });
     }, AUTO_CONFIRM_MS);
   };
@@ -504,21 +570,15 @@ export function createMockBackend({
     }, ETA_TICK_MS);
   };
 
+  /** Simulated support always sends the provider back to fix it. */
   const scheduleDisputeReview = (jobId: string) => {
     setTimeout(() => {
-      const job = jobs.get(jobId);
-      if (job?.status !== 'DISPUTED' || !job.dispute) {
+      if (jobs.get(jobId)?.status !== 'DISPUTED') {
         return;
       }
-      transitionJob(jobId, 'IN_PROGRESS', 'SYSTEM', {
-        metadata: { resolution: 'rework' },
-        changes: {
-          dispute: {
-            ...job.dispute,
-            resolution:
-              'Fundi-X support reviewed your report and asked your fundi to fix the problem at no extra cost.',
-          },
-        },
+      support.resolveDispute(jobId, {
+        outcome: 'REWORK',
+        note: 'Fundi-X support reviewed your report and asked your fundi to fix the problem at no extra cost.',
       });
     }, DISPUTE_REVIEW_MS);
   };
@@ -631,15 +691,21 @@ export function createMockBackend({
       }),
 
     cancelJob: jobId =>
-      call(() =>
-        transitionJob(jobId, 'CANCELLED', 'CUSTOMER', {
+      call(() => {
+        const job = getJobOrThrow(jobId);
+        // Decided now, from the clock: a provider arriving later can't undo it.
+        const late = isProviderLate(job, Date.now());
+        if (late && job.providerId) {
+          recordReliability(job.providerId, jobId, 'late');
+        }
+        return transitionJob(jobId, 'CANCELLED', 'CUSTOMER', {
           changes: cancelledBy(
             'CUSTOMER',
-            'customer_cancelled',
-            getJobOrThrow(jobId).status,
+            late ? 'provider_late' : 'customer_cancelled',
+            job.status,
           ),
-        }),
-      ),
+        });
+      }),
 
     approveQuote: (jobId, quoteId) =>
       call(() => {
@@ -651,19 +717,23 @@ export function createMockBackend({
         };
 
         if (quote.kind === 'ADDITIONAL') {
-          const job = assertStatus(jobId, 'IN_PROGRESS', 'CUSTOMER');
-          putQuote(approved);
-          chargeForQuote(approved);
-          notify();
-          return job;
+          throw new Error('Extra work is approved by paying for it');
         }
-        return transitionJob(jobId, 'IN_PROGRESS', 'CUSTOMER', {
-          metadata: { quoteId, total: quote.total },
-          alsoSave: () => {
-            putQuote(approved);
-            chargeForQuote(approved);
+        // Approved: next the price goes into escrow, before work starts.
+        const job = transitionJob(
+          jobId,
+          'SERVICE_PAYMENT_PENDING',
+          'CUSTOMER',
+          {
+            metadata: { quoteId, total: quote.total },
+            alsoSave: () => {
+              putQuote(approved);
+              chargeForQuote(approved);
+            },
           },
-        });
+        );
+        scheduleServicePaymentDeadline(jobId);
+        return job;
       }),
 
     rejectQuote: (jobId, quoteId) =>
@@ -689,7 +759,12 @@ export function createMockBackend({
       }),
 
     confirmCompletion: jobId =>
-      call(() => transitionJob(jobId, 'PAYMENT_PENDING', 'CUSTOMER')),
+      call(() =>
+        // The money is already in escrow: confirming releases it.
+        transitionJob(jobId, 'COMPLETED', 'CUSTOMER', {
+          changes: { completedAt: now() },
+        }),
+      ),
 
     disputeCompletion: (jobId, reason) =>
       call(() => {
@@ -744,6 +819,7 @@ export function createMockBackend({
     declineOffer: (jobId, providerId) =>
       call(() => {
         assertOfferedTo(jobId, providerId);
+        recordReliability(providerId, jobId, 'offer_declined');
         const job = transitionJob(jobId, 'SEARCHING', 'PROVIDER', {
           metadata: { providerId, reason: 'declined' },
         });
@@ -754,6 +830,13 @@ export function createMockBackend({
     withdrawFromJob: (jobId, providerId, note) =>
       call(() => {
         assertProvider(jobId, providerId);
+        recordReliability(
+          providerId,
+          jobId,
+          getJobOrThrow(jobId).status === 'EN_ROUTE'
+            ? 'withdrew_en_route'
+            : 'withdrew_after_accepting',
+        );
         const job = transitionJob(jobId, 'SEARCHING', 'PROVIDER', {
           metadata: { providerId, reason: 'provider_withdrew' },
           changes: {
@@ -773,8 +856,15 @@ export function createMockBackend({
       call(() => {
         assertProvider(jobId, providerId);
         const { distanceKm } = getProviderOrThrow(providerId);
+        const etaMinutes = Math.max(3, Math.round(distanceKm * 5));
         const job = transitionJob(jobId, 'EN_ROUTE', 'PROVIDER', {
-          changes: { etaMinutes: Math.max(3, Math.round(distanceKm * 5)) },
+          changes: {
+            etaMinutes,
+            // The promise the late rule is measured against.
+            expectedArrivalAt: new Date(
+              Date.now() + etaMinutes * 60_000,
+            ).toISOString(),
+          },
         });
         startEtaCountdown(jobId);
         return job;
@@ -794,10 +884,12 @@ export function createMockBackend({
         return transitionJob(jobId, 'DIAGNOSING', 'PROVIDER');
       }),
 
-    startService: (jobId, providerId) =>
+    readyToStart: (jobId, providerId) =>
       call(() => {
         assertProvider(jobId, providerId);
-        return transitionJob(jobId, 'IN_PROGRESS', 'PROVIDER');
+        const job = transitionJob(jobId, 'SERVICE_PAYMENT_PENDING', 'PROVIDER');
+        scheduleServicePaymentDeadline(jobId);
+        return job;
       }),
 
     reportCustomerNoShow: (jobId, providerId) =>
@@ -943,12 +1035,25 @@ export function createMockBackend({
       startMatching(job.id);
     } else if (
       payment.purpose === 'SERVICE' &&
-      job.status === 'PAYMENT_PENDING'
+      !payment.quoteId &&
+      job.status === 'SERVICE_PAYMENT_PENDING'
     ) {
-      transitionJob(job.id, 'COMPLETED', 'SYSTEM', {
-        metadata,
-        changes: { completedAt: now() },
-      });
+      // The agreed price is in escrow: work can start.
+      transitionJob(job.id, 'IN_PROGRESS', 'SYSTEM', { metadata });
+    } else if (
+      payment.quoteId &&
+      job.status === 'IN_PROGRESS' &&
+      quotes.get(payment.quoteId)?.status === 'PENDING'
+    ) {
+      // Approve-and-pay: the extra work is approved once it's paid for.
+      const approved: Quote = {
+        ...quotes.get(payment.quoteId)!,
+        status: 'APPROVED',
+        respondedAt: now(),
+      };
+      putQuote(approved);
+      chargeForQuote(approved);
+      notify();
     } else {
       // The job moved on while the customer was paying (e.g. they cancelled
       // the booking with the PIN prompt still open). Give the money back.
@@ -958,7 +1063,7 @@ export function createMockBackend({
   };
 
   const billing: BillingService = {
-    initiatePayment: async (jobId, phoneInput) => {
+    initiatePayment: async (jobId, phoneInput, options = {}) => {
       const phone = normaliseMpesaPhone(phoneInput);
       if (!phone) {
         throw new PaymentError(
@@ -968,17 +1073,32 @@ export function createMockBackend({
       await delay(STK_SEND_MS);
 
       const job = jobs.get(jobId);
-      // The backend, not the app, decides what this payment is for.
-      const purpose: MoneyPurpose | undefined =
-        job?.status === 'CALL_OUT_PAYMENT_PENDING'
-          ? 'CALL_OUT'
-          : job?.status === 'PAYMENT_PENDING'
-          ? 'SERVICE'
-          : undefined;
+      // The backend, not the app, decides what this payment is for and how
+      // much it is.
+      let purpose: MoneyPurpose | undefined;
+      let amount = 0;
+      if (options.quoteId) {
+        if (job?.status !== 'IN_PROGRESS') {
+          throw new PaymentError(
+            'Extra work can only be paid for while work is in progress.',
+          );
+        }
+        const quote = assertOpenQuote(jobId, options.quoteId);
+        if (quote.kind !== 'ADDITIONAL') {
+          throw new PaymentError('Only extra-work quotes are paid this way.');
+        }
+        purpose = 'SERVICE';
+        amount = quote.total;
+      } else if (job?.status === 'CALL_OUT_PAYMENT_PENDING') {
+        purpose = 'CALL_OUT';
+        amount = balanceDue(charges, payments, jobId, purpose);
+      } else if (job?.status === 'SERVICE_PAYMENT_PENDING') {
+        purpose = 'SERVICE';
+        amount = balanceDue(charges, payments, jobId, purpose);
+      }
       if (!job || !purpose) {
         throw new PaymentError('This job is not waiting for payment.');
       }
-      const amount = balanceDue(charges, payments, jobId, purpose);
       if (amount <= 0) {
         throw new PaymentError('There is nothing to pay right now.');
       }
@@ -993,6 +1113,7 @@ export function createMockBackend({
         id: makeId('pay'),
         jobId,
         purpose,
+        ...(options.quoteId && { quoteId: options.quoteId }),
         method: 'MPESA',
         phone,
         amount,
@@ -1057,7 +1178,65 @@ export function createMockBackend({
       }, 300),
     getProviderSnapshot: providerId => providers.get(providerId),
     getProvidersSnapshot: () => providerList,
+    getReliabilityEventsSnapshot: () => reliabilityEvents,
     subscribe,
+  };
+
+  // ---- Support (dev-only stand-in for the back office) ----
+
+  const support: SimulatedSupport = {
+    resolveDispute(jobId, decision) {
+      const job = getJobOrThrow(jobId);
+      if (job.status !== 'DISPUTED' || !job.dispute) {
+        throw new JobTransitionError(job.status, 'DISPUTED', 'SYSTEM');
+      }
+      const resolution = {
+        ...decision,
+        decidedBy: 'support-sim',
+        at: now(),
+      } as DisputeResolution;
+      const dispute = { ...job.dispute, resolution };
+      const metadata = { resolution: decision.outcome };
+
+      if (decision.outcome === 'REWORK') {
+        if (job.providerId) {
+          recordReliability(job.providerId, jobId, 'dispute_rework');
+        }
+        transitionJob(jobId, 'IN_PROGRESS', 'SYSTEM', {
+          metadata,
+          changes: { dispute },
+        });
+        return;
+      }
+      if (decision.outcome === 'UPHOLD_PROVIDER') {
+        transitionJob(jobId, 'COMPLETED', 'SYSTEM', {
+          metadata,
+          changes: { dispute, completedAt: now() },
+        });
+        return;
+      }
+      // SPLIT: the two parts must add up to exactly what's in escrow.
+      const { customerRefund, providerPayout } = decision;
+      const whole = [customerRefund, providerPayout].every(
+        n => Number.isInteger(n) && n >= 0,
+      );
+      if (
+        !whole ||
+        customerRefund + providerPayout !== escrowTotal(payments, jobId)
+      ) {
+        throw new Error('A split must divide exactly what is in escrow');
+      }
+      if (customerRefund > 0 && job.providerId) {
+        recordReliability(job.providerId, jobId, 'dispute_split');
+      }
+      transitionJob(jobId, 'CANCELLED', 'SYSTEM', {
+        metadata,
+        changes: {
+          dispute,
+          ...cancelledBy('SYSTEM', 'dispute_resolved', 'DISPUTED'),
+        },
+      });
+    },
   };
 
   if (botProviderIds.length > 0) {
@@ -1070,5 +1249,6 @@ export function createMockBackend({
     pricing,
     providers: providerRepository,
     phone,
+    support,
   };
 }

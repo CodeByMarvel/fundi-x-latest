@@ -71,16 +71,13 @@ export function MoneyOutcomePanel({ job }: { job: Job }) {
       ))}
       {ledger.release && (
         <Text style={textStyles.secondary}>
-          Your {formatKes(ledger.release.gross)} call-out paid for your fundi's
-          trip
-          {job.cancellation?.reason === 'quote_declined' && ' and inspection'},
-          so it isn't refundable.
-        </Text>
-      )}
-      {ledger.refunds.length === 0 && !ledger.release && (
-        <Text style={textStyles.secondary}>
-          Your {formatKes(ledger.totalPaid)} is being held while Fundi-X support
-          decides on your case.
+          {job.cancellation?.reason === 'dispute_resolved'
+            ? `As decided by Fundi-X support, ${formatKes(
+                ledger.release.gross,
+              )} was paid to your fundi for the work done.`
+            : `Your ${formatKes(
+                ledger.release.gross,
+              )} call-out paid for your fundi's visit, so it isn't refundable.`}
         </Text>
       )}
     </Card>

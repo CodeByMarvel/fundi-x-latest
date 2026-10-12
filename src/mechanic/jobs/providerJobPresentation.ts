@@ -63,19 +63,19 @@ const PROVIDER_STATUS: Record<JobStatus, ProviderStatusView> = {
     hint: 'Mark the work complete when you’re done.',
     tone: 'active',
   },
-  AWAITING_CONFIRMATION: {
-    title: 'Waiting for the customer',
-    hint: 'They’re checking the work before paying.',
+  SERVICE_PAYMENT_PENDING: {
+    title: 'Waiting for payment',
+    hint: 'The customer is paying the agreed price into escrow. Don’t start work yet.',
     tone: 'warning',
   },
-  PAYMENT_PENDING: {
-    title: 'Waiting for payment',
-    hint: 'The customer is paying with M-Pesa.',
+  AWAITING_CONFIRMATION: {
+    title: 'Waiting for the customer',
+    hint: 'They’re checking the work. Confirming releases your payment.',
     tone: 'warning',
   },
   COMPLETED: {
     title: 'Job completed',
-    hint: 'Paid in full. Your earnings have been released.',
+    hint: 'Your earnings have been released from escrow.',
     tone: 'success',
   },
   CANCELLED: {
@@ -97,8 +97,20 @@ const CANCELLED_BY: Record<CancellationReason, string> = {
   quote_declined: 'The customer declined your quote. You keep the call-out.',
   customer_no_show:
     'The customer wasn’t at the location. You keep the call-out.',
-  dispute_closed: 'Support closed this job after a dispute.',
+  provider_late:
+    'The customer cancelled because you were late. The call-out was refunded to them.',
+  service_unpaid:
+    'The customer didn’t pay the agreed price in time. You keep the call-out.',
+  dispute_resolved: 'Support settled the dispute by dividing the payment.',
 };
+
+/** Where the provider had set off or was on site: the call-out is theirs. */
+const COMMITTED: JobStatus[] = [
+  'EN_ROUTE',
+  'ARRIVED',
+  'DIAGNOSING',
+  'SERVICE_PAYMENT_PENDING',
+];
 
 /** The status view, adjusted for what else we know about the job. */
 export function providerJobView(job: Job): ProviderStatusView {
@@ -107,19 +119,25 @@ export function providerJobView(job: Job): ProviderStatusView {
     return { ...base, hint: CANCELLED_BY[job.cancellation.reason] };
   }
   if (job.status === 'ARRIVED' && job.pricingMode === 'FIXED') {
-    return { ...base, hint: 'Start the agreed service when you’re ready.' };
+    return {
+      ...base,
+      hint: 'Check the vehicle matches the booking, then tap “Ready to start”.',
+    };
   }
   if (
     job.status === 'CANCELLED' &&
     job.cancellation?.reason === 'customer_cancelled' &&
-    job.cancellation.fromStatus === 'EN_ROUTE'
+    COMMITTED.includes(job.cancellation.fromStatus)
   ) {
     return {
       ...base,
-      hint: 'The customer cancelled while you were on the way. You keep the call-out.',
+      hint: 'The customer cancelled after you set off. You keep the call-out.',
     };
   }
-  if (job.status === 'IN_PROGRESS' && job.dispute?.resolution) {
+  if (
+    job.status === 'IN_PROGRESS' &&
+    job.dispute?.resolution?.outcome === 'REWORK'
+  ) {
     return {
       ...base,
       title: 'Fix the reported problem',

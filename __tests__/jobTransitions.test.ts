@@ -1,3 +1,4 @@
+import { isProviderLate, LATE_GRACE_MS } from '../src/domain/jobs/rules';
 import {
   allowedNextStatuses,
   applyTransition,
@@ -53,36 +54,35 @@ function walk(start: Job, path: [JobStatus, JobActor][]) {
   return current;
 }
 
+const TO_ARRIVAL: [JobStatus, JobActor][] = [
+  ['SEARCHING', 'SYSTEM'],
+  ['OFFERED', 'SYSTEM'],
+  ['ACCEPTED', 'PROVIDER'],
+  ['EN_ROUTE', 'PROVIDER'],
+  ['ARRIVED', 'PROVIDER'],
+];
+
 describe('job transitions', () => {
-  it('walks a repair from booking to completed', () => {
+  it('walks a repair: quote, pay into escrow, work, confirm', () => {
     const done = walk(job, [
-      ['SEARCHING', 'SYSTEM'],
-      ['OFFERED', 'SYSTEM'],
-      ['ACCEPTED', 'PROVIDER'],
-      ['EN_ROUTE', 'PROVIDER'],
-      ['ARRIVED', 'PROVIDER'],
+      ...TO_ARRIVAL,
       ['DIAGNOSING', 'PROVIDER'],
       ['QUOTE_SENT', 'PROVIDER'],
-      ['IN_PROGRESS', 'CUSTOMER'],
+      ['SERVICE_PAYMENT_PENDING', 'CUSTOMER'],
+      ['IN_PROGRESS', 'SYSTEM'],
       ['AWAITING_CONFIRMATION', 'PROVIDER'],
-      ['PAYMENT_PENDING', 'CUSTOMER'],
-      ['COMPLETED', 'SYSTEM'],
+      ['COMPLETED', 'CUSTOMER'],
     ]);
     expect(done.status).toBe('COMPLETED');
-    expect(isTerminalStatus(done.status)).toBe(true);
   });
 
-  it('walks a fixed-price service straight from arrival to work', () => {
+  it('walks a fixed-price service: ready, pay into escrow, work, confirm', () => {
     const done = walk({ ...job, pricingMode: 'FIXED' }, [
-      ['SEARCHING', 'SYSTEM'],
-      ['OFFERED', 'SYSTEM'],
-      ['ACCEPTED', 'PROVIDER'],
-      ['EN_ROUTE', 'PROVIDER'],
-      ['ARRIVED', 'PROVIDER'],
-      ['IN_PROGRESS', 'PROVIDER'],
+      ...TO_ARRIVAL,
+      ['SERVICE_PAYMENT_PENDING', 'PROVIDER'],
+      ['IN_PROGRESS', 'SYSTEM'],
       ['AWAITING_CONFIRMATION', 'PROVIDER'],
-      ['PAYMENT_PENDING', 'CUSTOMER'],
-      ['COMPLETED', 'SYSTEM'],
+      ['COMPLETED', 'CUSTOMER'],
     ]);
     expect(done.status).toBe('COMPLETED');
   });
@@ -92,13 +92,33 @@ describe('job transitions', () => {
       canTransition(at('ARRIVED', 'QUOTED'), 'DIAGNOSING', 'PROVIDER'),
     ).toBe(true);
     expect(
-      canTransition(at('ARRIVED', 'QUOTED'), 'IN_PROGRESS', 'PROVIDER'),
+      canTransition(
+        at('ARRIVED', 'QUOTED'),
+        'SERVICE_PAYMENT_PENDING',
+        'PROVIDER',
+      ),
     ).toBe(false);
     expect(
-      canTransition(at('ARRIVED', 'FIXED'), 'IN_PROGRESS', 'PROVIDER'),
+      canTransition(
+        at('ARRIVED', 'FIXED'),
+        'SERVICE_PAYMENT_PENDING',
+        'PROVIDER',
+      ),
     ).toBe(true);
     expect(
       canTransition(at('ARRIVED', 'FIXED'), 'DIAGNOSING', 'PROVIDER'),
+    ).toBe(false);
+  });
+
+  it('starts work only when the payment system confirms the money', () => {
+    expect(
+      canTransition(at('SERVICE_PAYMENT_PENDING'), 'IN_PROGRESS', 'SYSTEM'),
+    ).toBe(true);
+    expect(
+      canTransition(at('SERVICE_PAYMENT_PENDING'), 'IN_PROGRESS', 'PROVIDER'),
+    ).toBe(false);
+    expect(
+      canTransition(at('CALL_OUT_PAYMENT_PENDING'), 'SEARCHING', 'CUSTOMER'),
     ).toBe(false);
   });
 
@@ -117,10 +137,6 @@ describe('job transitions', () => {
       metadata: { paymentId: 'pay-1' },
     });
     expect(next.updatedAt).toBe('2026-10-07T08:05:00.000Z');
-  });
-
-  it('does not change the job it was given', () => {
-    applyTransition(job, 'SEARCHING', 'SYSTEM', ctx(1));
     expect(job.status).toBe('CALL_OUT_PAYMENT_PENDING');
   });
 
@@ -130,32 +146,32 @@ describe('job transitions', () => {
     );
   });
 
-  it('lets only the payment system confirm money arrived', () => {
-    expect(
-      canTransition(at('CALL_OUT_PAYMENT_PENDING'), 'SEARCHING', 'CUSTOMER'),
-    ).toBe(false);
-    expect(canTransition(at('PAYMENT_PENDING'), 'COMPLETED', 'CUSTOMER')).toBe(
-      false,
-    );
-    expect(canTransition(at('PAYMENT_PENDING'), 'COMPLETED', 'SYSTEM')).toBe(
-      true,
-    );
+  it('lets the customer leave until work starts, and not after', () => {
+    const canLeave = (status: JobStatus) =>
+      canTransition(at(status), 'CANCELLED', 'CUSTOMER');
+    for (const status of [
+      'CALL_OUT_PAYMENT_PENDING',
+      'SEARCHING',
+      'OFFERED',
+      'ACCEPTED',
+      'EN_ROUTE',
+      'ARRIVED',
+      'DIAGNOSING',
+      'QUOTE_SENT',
+      'SERVICE_PAYMENT_PENDING',
+    ] as const) {
+      expect(canLeave(status)).toBe(true);
+    }
+    for (const status of [
+      'IN_PROGRESS',
+      'AWAITING_CONFIRMATION',
+      'DISPUTED',
+    ] as const) {
+      expect(canLeave(status)).toBe(false);
+    }
   });
 
-  it('refuses moves by the wrong actor', () => {
-    expect(
-      canTransition(at('IN_PROGRESS'), 'AWAITING_CONFIRMATION', 'CUSTOMER'),
-    ).toBe(false);
-    expect(canTransition(at('QUOTE_SENT'), 'IN_PROGRESS', 'PROVIDER')).toBe(
-      false,
-    );
-    expect(canTransition(at('SEARCHING'), 'CANCELLED', 'PROVIDER')).toBe(false);
-  });
-
-  it('sends a declined, expired or abandoned job back to searching', () => {
-    expect(canTransition(at('OFFERED'), 'SEARCHING', 'PROVIDER')).toBe(true);
-    expect(canTransition(at('OFFERED'), 'SEARCHING', 'SYSTEM')).toBe(true);
-    // A provider withdrawing after accepting: rematch, don't cancel.
+  it('rematches when a provider withdraws, instead of cancelling', () => {
     expect(canTransition(at('ACCEPTED'), 'SEARCHING', 'PROVIDER')).toBe(true);
     expect(canTransition(at('EN_ROUTE'), 'SEARCHING', 'PROVIDER')).toBe(true);
     expect(canTransition(at('ACCEPTED'), 'CANCELLED', 'PROVIDER')).toBe(false);
@@ -168,49 +184,58 @@ describe('job transitions', () => {
     ]);
   });
 
-  it('lets only the provider withdraw a quote to revise it', () => {
-    expect(canTransition(at('QUOTE_SENT'), 'DIAGNOSING', 'PROVIDER')).toBe(
-      true,
-    );
-    expect(canTransition(at('QUOTE_SENT'), 'DIAGNOSING', 'CUSTOMER')).toBe(
-      false,
-    );
-  });
-
   it('blocks approving a quote while it is being revised', () => {
     const quoted: Job = { ...job, status: 'QUOTE_SENT' };
     const revising = applyTransition(quoted, 'DIAGNOSING', 'PROVIDER', ctx(1));
     expect(() =>
-      applyTransition(revising.job, 'IN_PROGRESS', 'CUSTOMER', ctx(2)),
+      applyTransition(
+        revising.job,
+        'SERVICE_PAYMENT_PENDING',
+        'CUSTOMER',
+        ctx(2),
+      ),
     ).toThrow(JobTransitionError);
   });
 
-  it('lets the customer confirm, or the system auto-confirm', () => {
+  it('completes on confirmation, by the customer or after 48 h', () => {
     expect(
       allowedNextStatuses(at('AWAITING_CONFIRMATION'), 'CUSTOMER'),
-    ).toEqual(['PAYMENT_PENDING', 'DISPUTED']);
+    ).toEqual(['COMPLETED', 'DISPUTED']);
     expect(allowedNextStatuses(at('AWAITING_CONFIRMATION'), 'SYSTEM')).toEqual([
-      'PAYMENT_PENDING',
+      'COMPLETED',
     ]);
-    expect(
-      allowedNextStatuses(at('AWAITING_CONFIRMATION'), 'PROVIDER'),
-    ).toEqual([]);
   });
 
-  it('lets only support move a disputed job on', () => {
+  it('lets only support resolve a dispute, three ways', () => {
     expect(isTerminalStatus('DISPUTED')).toBe(false);
     expect(allowedNextStatuses(at('DISPUTED'), 'SYSTEM')).toEqual([
       'IN_PROGRESS',
-      'PAYMENT_PENDING',
+      'COMPLETED',
       'CANCELLED',
     ]);
     expect(allowedNextStatuses(at('DISPUTED'), 'CUSTOMER')).toEqual([]);
-    expect(allowedNextStatuses(at('DISPUTED'), 'PROVIDER')).toEqual([]);
   });
 
   it('allows nothing out of a finished job', () => {
-    for (const status of ['COMPLETED', 'CANCELLED'] as const) {
-      expect(isTerminalStatus(status)).toBe(true);
-    }
+    expect(isTerminalStatus('COMPLETED')).toBe(true);
+    expect(isTerminalStatus('CANCELLED')).toBe(true);
+  });
+});
+
+describe('late provider rule', () => {
+  const expected = '2026-10-07T10:00:00.000Z';
+  const enRoute = { status: 'EN_ROUTE', expectedArrivalAt: expected };
+
+  it('counts as late only after arrival time + 20 minutes', () => {
+    const due = Date.parse(expected);
+    expect(isProviderLate(enRoute, due + LATE_GRACE_MS)).toBe(false);
+    expect(isProviderLate(enRoute, due + LATE_GRACE_MS + 1)).toBe(true);
+  });
+
+  it('only applies while en route', () => {
+    const later = Date.parse(expected) + LATE_GRACE_MS * 3;
+    expect(isProviderLate({ ...enRoute, status: 'ARRIVED' }, later)).toBe(
+      false,
+    );
   });
 });

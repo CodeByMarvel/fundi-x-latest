@@ -157,7 +157,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
             <Text style={textStyles.quote}>“{job.dispute.reason}”</Text>
             {job.dispute.resolution && (
               <Text style={textStyles.secondary}>
-                Support: {job.dispute.resolution}
+                Support: {job.dispute.resolution.note}
               </Text>
             )}
           </Card>
@@ -258,14 +258,14 @@ export function MechanicJobScreen({ navigation, route }: Props) {
                 <PrimaryButton
                   label={
                     job.pricingMode === 'FIXED'
-                      ? 'Start service'
+                      ? 'Ready to start'
                       : 'Start inspection'
                   }
                   loading={pending === 'start'}
                   onPress={() =>
                     act('start', () =>
                       job.pricingMode === 'FIXED'
-                        ? jobRepository.startService(job.id, me)
+                        ? jobRepository.readyToStart(job.id, me)
                         : jobRepository.startInspection(job.id, me),
                     )
                   }

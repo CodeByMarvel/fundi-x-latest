@@ -1,4 +1,4 @@
-package com.fundix1
+package com.fundix.app
 
 import android.os.Bundle
 import com.facebook.react.ReactActivity

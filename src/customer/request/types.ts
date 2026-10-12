@@ -1,40 +1,28 @@
-export type RequestType = 'repair' | 'service';
-
-export type Vehicle = {
-  id: string;
-  registration: string;
-  make: string;
-  model: string;
-  year?: number;
-};
-
-export type Drivability = 'safe' | 'caution' | 'cannot' | 'unsure';
-
-export type Urgency = 'now' | 'today' | 'scheduled';
-
-export type LocationKind = 'current' | 'home' | 'work' | 'other';
-
-export type RequestLocation = {
-  kind: LocationKind;
-  label: string;
-  address: string;
-};
-
-export type ScheduledFor = {
-  /** YYYY-MM-DD */
-  date: string;
-  /** HH:mm */
-  time: string;
-};
+// The request vocabulary lives in the domain, shared with the backend.
+import type {
+  Answers,
+  Drivability,
+  RequestLocation,
+  RequestType,
+  ScheduledFor,
+  Urgency,
+} from '../../domain/jobs/request';
+export type {
+  Answers,
+  Drivability,
+  LocationKind,
+  RequestLocation,
+  RequestType,
+  ScheduledFor,
+  Urgency,
+  Vehicle,
+} from '../../domain/jobs/request';
 
 export type MediaItem = {
   id: string;
   type: 'photo' | 'video';
   uri: string;
 };
-
-/** Question id -> selected option ids. */
-export type Answers = Record<string, string[]>;
 
 /** Everything the customer has told us so far while building a request. */
 export type RequestDraft = {

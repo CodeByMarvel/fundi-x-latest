@@ -19,9 +19,10 @@ import {
   jobRepository,
   simulatedPhone,
 } from '../src/data/backend';
-import { calculateEstimate } from '../src/data/mock/mockPricing';
+import { calculateEstimate } from '../src/domain/pricing/engine';
 import { JobRequestDetails } from '../src/domain/jobs/types';
-import { kes } from '../src/domain/money';
+import { LATE_GRACE_MS } from '../src/domain/jobs/rules';
+import { line } from '../src/domain/quotes/quotes';
 import { MechanicJobScreen } from '../src/mechanic/jobs/MechanicJobScreen';
 import { QuoteBuilderScreen } from '../src/mechanic/jobs/QuoteBuilderScreen';
 import { AccountScreen as MechanicAccount } from '../src/mechanic/screens/AccountScreen';
@@ -190,29 +191,29 @@ it('renders every stage of a repair on both sides', async () => {
 
   await call(jobRepository.startInspection(job.id, 'p1'));
   expect(renderJob(job.id).mechanic).toContain('Create quote');
-  expect(
-    render(
-      <QuoteBuilderScreen
-        {...props('QuoteBuilder', { jobId: job.id, mode: 'base' })}
-      />,
-    ),
-  ).toContain('Send quote to customer');
+  const builder = render(
+    <QuoteBuilderScreen
+      {...props('QuoteBuilder', { jobId: job.id, mode: 'base' })}
+    />,
+  );
+  expect(builder).toContain('Send quote to customer');
+  // Standard service codes to pick from.
+  expect(builder).toContain('Diagnostics');
 
   const quote = await call(
-    jobRepository.sendQuote(job.id, 'p1', [
-      {
-        kind: 'PART',
-        description: 'Brake pads',
-        quantity: 1,
-        unitPrice: kes(4500),
-      },
-    ]),
+    jobRepository.sendQuote(job.id, 'p1', [line('BRAKE_PAD_FRONT', 4500)]),
   );
   screens = renderJob(job.id);
   expect(screens.customer).toContain('Approve & start repair');
   expect(screens.mechanic).toContain('Awaiting approval');
 
   await call(jobRepository.approveQuote(job.id, quote.id));
+  screens = renderJob(job.id);
+  expect(screens.customer).toContain('Pay to start');
+  expect(screens.customer).toContain('Held safely by Fundi-X');
+  expect(screens.mechanic).toContain('Don’t start work yet');
+
+  await pay(job.id);
   expect(renderJob(job.id).mechanic).toContain('Found extra work? Quote it');
   expect(
     render(
@@ -223,14 +224,11 @@ it('renders every stage of a repair on both sides', async () => {
   ).toContain('Why is this needed?');
 
   await call(jobRepository.markWorkComplete(job.id, 'p1', 'New pads fitted'));
-  expect(renderJob(job.id).customer).toContain('Report a problem');
+  screens = renderJob(job.id);
+  expect(screens.customer).toContain('Report a problem');
+  expect(screens.customer).toContain('release payment');
 
   await call(jobRepository.confirmCompletion(job.id));
-  screens = renderJob(job.id);
-  expect(screens.customer).toContain('Still to pay');
-  expect(screens.customer).toContain('already paid');
-
-  await pay(job.id);
   screens = renderJob(job.id);
   expect(screens.customer).toContain('Service completed');
   expect(screens.customer).toContain('Total paid');
@@ -246,7 +244,7 @@ it('renders every stage of a repair on both sides', async () => {
   expect(render(<CustomerAccount />)).toContain('My vehicles');
   expect(render(<JobsScreen />)).toContain('History');
   expect(render(<EarningsScreen />)).toContain('Payouts');
-  expect(render(<MechanicAccount />)).toContain('rating');
+  expect(render(<MechanicAccount />)).toContain('Reliability');
 });
 
 it('renders a fixed-price service with extra work on both sides', async () => {
@@ -258,28 +256,26 @@ it('renders a fixed-price service with extra work on both sides', async () => {
   await call(jobRepository.acceptOffer(booked.id, 'p1'));
   await call(jobRepository.startTrip(booked.id, 'p1'));
   await call(jobRepository.markArrived(booked.id, 'p1'));
-  expect(renderJob(booked.id).mechanic).toContain('Start service');
+  expect(renderJob(booked.id).mechanic).toContain('Ready to start');
 
-  await call(jobRepository.startService(booked.id, 'p1'));
+  await call(jobRepository.readyToStart(booked.id, 'p1'));
+  let screens = renderJob(booked.id);
+  expect(screens.customer).toContain('Pay to start');
+  expect(screens.mechanic).toContain('Waiting for payment');
+
+  await pay(booked.id);
   expect(renderJob(booked.id).mechanic).toContain('Fixed by Fundi-X');
 
   const extra = await call(
     jobRepository.raiseAdditionalQuote(
       booked.id,
       'p1',
-      [
-        {
-          kind: 'PART',
-          description: 'Wiper blades',
-          quantity: 2,
-          unitPrice: kes(600),
-        },
-      ],
+      [line('WIPER_BLADE', 600, 2)],
       'Wiper blades are split',
     ),
   );
-  let screens = renderJob(booked.id);
-  expect(screens.customer).toContain('Approve extra work');
+  screens = renderJob(booked.id);
+  expect(screens.customer).toContain('Approve & pay');
   expect(screens.mechanic).toContain('Waiting for the customer to answer');
 
   await call(jobRepository.rejectQuote(booked.id, extra.id));
@@ -290,7 +286,6 @@ it('renders a fixed-price service with extra work on both sides', async () => {
   // Leave p1 free for the next test.
   await call(jobRepository.markWorkComplete(booked.id, 'p1', ''));
   await call(jobRepository.confirmCompletion(booked.id));
-  await pay(booked.id);
 });
 
 it('explains a withdrawal and a refunded cancellation', async () => {
@@ -309,6 +304,24 @@ it('explains a withdrawal and a refunded cancellation', async () => {
   expect(screens.customer).toContain('Refund of');
 });
 
+it('offers a full refund when the fundi is late', async () => {
+  const job = await offered(REPAIR);
+  await call(jobRepository.acceptOffer(job.id, 'p1'));
+  const enRoute = await call(jobRepository.startTrip(job.id, 'p1'));
+  expect(renderJob(job.id).customer).not.toContain('running late');
+
+  await wait(
+    Date.parse(enRoute.expectedArrivalAt!) + LATE_GRACE_MS + 1000 - Date.now(),
+  );
+  expect(renderJob(job.id).customer).toContain('running late');
+
+  await call(jobRepository.cancelJob(job.id));
+  const screens = renderJob(job.id);
+  expect(screens.customer).toContain('Your fundi was late');
+  expect(screens.customer).toContain('Refund of');
+  expect(screens.mechanic).toContain('because you were late');
+});
+
 it('explains a declined estimate on both sides', async () => {
   const job = await offered(REPAIR);
   await call(jobRepository.acceptOffer(job.id, 'p1'));
@@ -316,14 +329,7 @@ it('explains a declined estimate on both sides', async () => {
   await call(jobRepository.markArrived(job.id, 'p1'));
   await call(jobRepository.startInspection(job.id, 'p1'));
   const quote = await call(
-    jobRepository.sendQuote(job.id, 'p1', [
-      {
-        kind: 'LABOUR',
-        description: 'Repair',
-        quantity: 1,
-        unitPrice: kes(3000),
-      },
-    ]),
+    jobRepository.sendQuote(job.id, 'p1', [line('LABOUR_GENERAL', 3000)]),
   );
   await call(jobRepository.rejectQuote(job.id, quote.id));
 

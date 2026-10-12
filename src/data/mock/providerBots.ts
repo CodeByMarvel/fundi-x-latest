@@ -61,7 +61,7 @@ export function startProviderBots(jobs: JobRepository, botIds: string[]) {
           // Fixed-price work was agreed at booking; anything else needs a look first.
           later(BOT_TIMINGS.inspect, () =>
             job.pricingMode === 'FIXED'
-              ? jobs.startService(job.id, providerId)
+              ? jobs.readyToStart(job.id, providerId)
               : jobs.startInspection(job.id, providerId),
           );
           break;
