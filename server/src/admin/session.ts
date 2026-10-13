@@ -104,6 +104,7 @@ export async function audit(
     targetId?: string;
     before?: unknown;
     after?: unknown;
+    reason?: string;
   },
 ) {
   await db.insert(auditLog).values({
@@ -114,6 +115,7 @@ export async function audit(
     targetId: entry.targetId ?? null,
     before: entry.before ?? null,
     after: entry.after ?? null,
+    reason: entry.reason ?? null,
     ip: request.ip,
     requestId: request.id,
     createdAt: new Date(),

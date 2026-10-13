@@ -15,6 +15,8 @@ export const PERMISSIONS = [
   'providers.verify',
   'settings.edit',
   'logs.view',
+  'incidents.resolve',
+  'timers.retry',
   'staff.manage',
 ] as const;
 
@@ -25,6 +27,7 @@ export type Permission = (typeof PERMISSIONS)[number];
  * role with everything. Hiring adds roles here, for example:
  *   SUPPORT:  jobs.view, jobs.cancel, users.view, users.suspend
  *   ACCOUNTS: jobs.view, money.view, money.refund
+ * The full planned list is in docs/admin-portal.md §5.
  */
 export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
   OWNER: PERMISSIONS,

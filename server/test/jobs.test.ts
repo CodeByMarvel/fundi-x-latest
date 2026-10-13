@@ -298,15 +298,17 @@ describe('the database', () => {
     const dir = join(root, 'data', 'pglite');
     try {
       const first = await createDatabase({ dataDir: dir });
+      await resetTables(first.db); // This database needs its accounts too.
       const before = buildApp({ db: first.db });
-      const created = (
-        await before.inject({
-          method: 'POST',
-          url: '/jobs',
-          headers: WANJIRU,
-          payload: booking(REPAIR),
-        })
-      ).json();
+      const booked = await before.inject({
+        method: 'POST',
+        url: '/jobs',
+        headers: WANJIRU,
+        payload: booking(REPAIR),
+      });
+      // Guards the comparison below: two identical errors would also match.
+      expect(booked.statusCode).toBe(201);
+      const created = booked.json();
       await before.close();
       await first.close();
 
@@ -316,6 +318,7 @@ describe('the database', () => {
         url: `/jobs/${created.id}`,
         headers: WANJIRU,
       });
+      expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual(created);
       await after.close();
       await second.close();

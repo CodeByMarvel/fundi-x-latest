@@ -4,7 +4,9 @@ import { googleVerifier } from './admin/google';
 import { registerAdminRoutes, type AdminConfig } from './admin/routes';
 import { registerAuth } from './auth';
 import type { Database } from './db/client';
-import { errorHandler } from './errors';
+import { createErrorHandler } from './errors';
+import { newId } from './ids';
+import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
 
 /** Local development: no Google sign-in until GOOGLE_CLIENT_ID is set. */
@@ -29,8 +31,36 @@ export function buildApp({
   logger?: boolean;
   admin?: AdminConfig;
 }) {
-  const app = Fastify({ logger });
-  app.setErrorHandler(errorHandler);
+  const app = Fastify({
+    logger,
+    // Our own ids (req_…), never one sent by the caller, so a log line, an
+    // incident and an error message can always be matched up.
+    genReqId: () => newId('req'),
+    requestIdHeader: false,
+  });
+  app.addHook('onSend', async (request, reply) => {
+    reply.header('x-request-id', request.id);
+  });
+  app.setErrorHandler(
+    createErrorHandler((error, request) =>
+      reportIncident(
+        db,
+        {
+          kind: 'server_error',
+          title: `${error.name}: ${error.message}`,
+          where: `${request.method} ${request.routeOptions.url ?? request.url}`,
+          detail: {
+            method: request.method,
+            route: request.routeOptions.url ?? null,
+            url: request.url,
+            ...describeError(error),
+          },
+          requestId: request.id,
+        },
+        request.log,
+      ),
+    ),
+  );
   app.register(cookie);
   registerAuth(app, db);
   app.get('/health', async () => ({ ok: true }));

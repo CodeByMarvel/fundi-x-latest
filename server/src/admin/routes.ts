@@ -12,7 +12,11 @@ import {
   type SettingKey,
 } from '../settings';
 import type { GoogleIdentity, GoogleVerifier } from './google';
+import { registerAdminDashboard } from './dashboard';
+import { registerAdminEngineering } from './engineering';
+import { registerAdminJobs } from './jobs';
 import { ROLE_PERMISSIONS } from './permissions';
+import { reasonFrom, reasonSchema } from './reason';
 import {
   audit,
   createSession,
@@ -214,15 +218,18 @@ export function registerAdminRoutes(
         });
       });
 
-      admin.put<{ Params: { key: string }; Body: { value: unknown } }>(
+      admin.put<{
+        Params: { key: string };
+        Body: { value: unknown; reason: string };
+      }>(
         '/settings/:key',
         {
           schema: {
             body: {
               type: 'object',
-              required: ['value'],
+              required: ['value', 'reason'],
               additionalProperties: false,
-              properties: { value: {} },
+              properties: { value: {}, reason: reasonSchema },
             },
           },
         },
@@ -236,6 +243,7 @@ export function registerAdminRoutes(
           if (problem) {
             throw new BadRequestError(problem);
           }
+          const reason = reasonFrom(request.body.reason);
           const value = request.body.value as (typeof SETTING_DEFAULTS)[typeof key];
           await db.transaction(async tx => {
             const before = await getSetting(tx, key);
@@ -247,6 +255,7 @@ export function registerAdminRoutes(
               targetId: key,
               before,
               after: value,
+              reason,
             });
           });
           return { key, value };
@@ -283,6 +292,10 @@ export function registerAdminRoutes(
             .limit(limit);
         },
       );
+
+      registerAdminDashboard(admin, db);
+      registerAdminJobs(admin, db);
+      registerAdminEngineering(admin, db);
     },
     { prefix: '/admin' },
   );

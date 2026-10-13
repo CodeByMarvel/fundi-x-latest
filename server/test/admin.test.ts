@@ -182,7 +182,7 @@ describe('settings from the console', () => {
       url: '/admin/settings/call_out_fee',
       headers: { origin: ORIGIN },
       cookies,
-      payload: { value },
+      payload: { value, reason: 'Testing the fee change' },
     });
 
   it('changes the call-out fee customers are quoted, and logs before/after', async () => {
@@ -201,7 +201,12 @@ describe('settings from the console', () => {
       .select()
       .from(auditLog)
       .where(eq(auditLog.action, 'settings.update'));
-    expect(change).toMatchObject({ targetId: 'call_out_fee', before: CALL_OUT_FEE, after: kes(1000) });
+    expect(change).toMatchObject({
+      targetId: 'call_out_fee',
+      before: CALL_OUT_FEE,
+      after: kes(1000),
+      reason: 'Testing the fee change',
+    });
     expect(change.staffId).toBeTruthy();
     expect(change.requestId).toBeTruthy();
 

@@ -42,45 +42,65 @@ export class NotConfiguredError extends Error {
   }
 }
 
+/** Called for errors nobody expected (HTTP 500), e.g. to record an incident. */
+export type UnexpectedErrorHook = (
+  error: Error,
+  request: FastifyRequest,
+) => Promise<void>;
+
 /**
  * Turns errors into HTTP answers with a stable `error` code the app can
  * act on. Domain errors keep their meaning across the network: a
  * JobTransitionError on the phone and a 409 job_transition from the server
  * are the same event.
+ *
+ * Every error answer carries the request id, so a customer, the app or
+ * support can quote it and engineering can find the exact request.
  */
-export function errorHandler(
-  error: FastifyError | Error,
-  request: FastifyRequest,
-  reply: FastifyReply,
-) {
-  const send = (status: number, code: string, message = error.message) =>
-    reply.status(status).send({ error: code, message });
-
-  if (
-    ('validation' in error && error.validation) ||
-    error instanceof BadRequestError
+export function createErrorHandler(onUnexpected?: UnexpectedErrorHook) {
+  return async function errorHandler(
+    error: FastifyError | Error,
+    request: FastifyRequest,
+    reply: FastifyReply,
   ) {
-    return send(400, 'invalid_request');
-  }
-  if (error instanceof UnauthenticatedError) {
-    return send(401, 'unauthenticated');
-  }
-  if (error instanceof ForbiddenError) {
-    return send(403, 'forbidden');
-  }
-  if (error instanceof NotFoundError) {
-    return send(404, 'not_found');
-  }
-  if (error instanceof JobTransitionError) {
-    return send(409, 'job_transition');
-  }
-  if (error instanceof PriceChangedError) {
-    return send(409, 'price_changed');
-  }
-  if (error instanceof NotConfiguredError) {
+    const send = (status: number, code: string, message = error.message) =>
+      reply
+        .status(status)
+        .send({ error: code, message, requestId: request.id });
+
+    if (
+      ('validation' in error && error.validation) ||
+      error instanceof BadRequestError
+    ) {
+      return send(400, 'invalid_request');
+    }
+    if (error instanceof UnauthenticatedError) {
+      return send(401, 'unauthenticated');
+    }
+    if (error instanceof ForbiddenError) {
+      return send(403, 'forbidden');
+    }
+    if (error instanceof NotFoundError) {
+      return send(404, 'not_found');
+    }
+    if (error instanceof JobTransitionError) {
+      return send(409, 'job_transition');
+    }
+    if (error instanceof PriceChangedError) {
+      return send(409, 'price_changed');
+    }
+    if (error instanceof NotConfiguredError) {
+      request.log.error(error);
+      return send(503, 'not_configured');
+    }
+    // Fastify's own client errors (malformed JSON, body too large…): the
+    // caller's mistake, not ours, so not an incident.
+    const status = (error as FastifyError).statusCode;
+    if (status && status >= 400 && status < 500) {
+      return send(status, 'invalid_request');
+    }
     request.log.error(error);
-    return send(503, 'not_configured');
-  }
-  request.log.error(error);
-  return send(500, 'internal', 'Something went wrong');
+    await onUnexpected?.(error, request);
+    return send(500, 'internal', 'Something went wrong');
+  };
 }

@@ -9,6 +9,7 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { ReleaseLine } from '../../../src/domain/billing/types';
 import type {
   Job,
@@ -165,6 +166,8 @@ export const auditLog = pgTable(
     targetId: text('target_id'),
     before: jsonb('before'),
     after: jsonb('after'),
+    /** Why, in the staff member's words. Required for interventions. */
+    reason: text('reason'),
     ip: text('ip'),
     requestId: text('request_id'),
     createdAt: createdAt(),
@@ -388,4 +391,44 @@ export const timers = pgTable(
   },
   // The worker's question is always "which PENDING timers are due?".
   t => [index('timers_due_idx').on(t.status, t.dueAt)],
+);
+
+/** What kind of problem an incident records. */
+export type IncidentKind =
+  | 'server_error' // a request failed with HTTP 500
+  | 'timer_failed' // a timer gave up after repeated errors
+  | 'timer_worker_error'; // the timer worker itself crashed
+
+/**
+ * Problems the server noticed by itself, for the Engineering page, so
+ * they're seen before a customer calls. The same problem happening again
+ * adds to the open incident's count instead of a new row: one open
+ * incident per fingerprint. Once resolved, a repeat opens a new one.
+ */
+export const incidents = pgTable(
+  'incidents',
+  {
+    id: text('id').primaryKey(),
+    /** Identifies "the same problem" (kind + where + what). */
+    fingerprint: text('fingerprint').notNull(),
+    kind: text('kind').$type<IncidentKind>().notNull(),
+    title: text('title').notNull(),
+    /** The latest occurrence: route, error stack, timer details… */
+    detail: jsonb('detail'),
+    jobId: text('job_id').references(() => jobs.id),
+    lastRequestId: text('last_request_id'),
+    count: integer('count').notNull().default(1),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    status: text('status').$type<'OPEN' | 'RESOLVED'>().notNull(),
+    resolvedBy: text('resolved_by').references(() => staff.id),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+  },
+  t => [
+    uniqueIndex('incidents_open_fingerprint_idx')
+      .on(t.fingerprint)
+      .where(sql`${t.status} = 'OPEN'`),
+    index('incidents_last_seen_idx').on(t.lastSeenAt),
+  ],
 );

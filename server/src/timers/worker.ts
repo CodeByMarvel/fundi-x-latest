@@ -1,6 +1,7 @@
 import { and, asc, eq, lte } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { timers } from '../db/schema';
+import { describeError, reportIncident } from '../incidents';
 import { TIMER_HANDLERS } from './handlers';
 
 /** After this many errors a timer stops retrying and waits for a person. */
@@ -88,17 +89,33 @@ async function recordFailure(
     return;
   }
   const attempts = timer.attempts + 1;
+  const lastError = err instanceof Error ? err.message : String(err);
   await db
     .update(timers)
     .set({
       attempts,
-      lastError: err instanceof Error ? err.message : String(err),
+      lastError,
       ...(attempts >= MAX_TIMER_ATTEMPTS
         ? { status: 'FAILED' as const }
         : { dueAt: new Date(now.getTime() + attempts * RETRY_STEP_MS) }),
       updatedAt: now,
     })
     .where(eq(timers.id, id));
+  if (attempts >= MAX_TIMER_ATTEMPTS) {
+    // It stops retrying now, so a person has to look.
+    await reportIncident(db, {
+      kind: 'timer_failed',
+      title: `${timer.kind} timer failed: ${lastError}`,
+      detail: {
+        timerId: timer.id,
+        timerKind: timer.kind,
+        attempts,
+        dueAt: timer.dueAt.toISOString(),
+        ...describeError(err),
+      },
+      jobId: timer.jobId,
+    });
+  }
 }
 
 /**
@@ -129,7 +146,14 @@ export function startTimerWorker(
           onRun?.(run);
         }
       })
-      .catch(err => onError?.(err))
+      .catch(async err => {
+        await reportIncident(db, {
+          kind: 'timer_worker_error',
+          title: `Timer check failed: ${err instanceof Error ? err.message : String(err)}`,
+          detail: describeError(err),
+        });
+        onError?.(err);
+      })
       .finally(() => {
         current = undefined;
       });

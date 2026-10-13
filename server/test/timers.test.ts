@@ -40,6 +40,7 @@ async function book() {
     headers: WANJIRU,
     payload: booking(REPAIR),
   });
+  expect(res.statusCode).toBe(201);
   return res.json();
 }
 
