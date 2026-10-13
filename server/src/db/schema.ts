@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -17,7 +18,10 @@ import type {
   JobStatus,
   PricingMode,
 } from '../../../src/domain/jobs/types';
-import type { ReliabilityEventType } from '../../../src/domain/providers/types';
+import type {
+  ProviderType,
+  ReliabilityEventType,
+} from '../../../src/domain/providers/types';
 import type {
   QuoteIssuer,
   QuoteItem,
@@ -39,6 +43,69 @@ const updatedAt = () =>
   timestamp('updated_at', { withTimezone: true }).notNull();
 const cents = (name: string) => bigint(name, { mode: 'number' }).notNull();
 
+/** What an account is for. One person can hold a customer and a provider
+ * account on the same phone: they're separate, like Uber's rider and
+ * driver apps. */
+export type UserRole = 'CUSTOMER' | 'PROVIDER' | 'ADMIN';
+
+/** Everyone who signs in: customers, providers and Fundi-X staff. */
+export const users = pgTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    /** M-Pesa format, 2547XXXXXXXX. Login is phone + SMS code. */
+    phone: text('phone').notNull(),
+    name: text('name').notNull(),
+    role: text('role').$type<UserRole>().notNull(),
+    /** SUSPENDED accounts are refused on every request (an admin action). */
+    status: text('status').$type<'ACTIVE' | 'SUSPENDED'>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  t => [uniqueIndex('users_phone_role_idx').on(t.phone, t.role)],
+);
+
+/**
+ * The provider side of a PROVIDER user, keyed by the same id, so a job's
+ * provider_id is both the provider and the account that signs in.
+ */
+export const providers = pgTable('providers', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id),
+  type: text('type').$type<ProviderType>().notNull(),
+  /** A garage's trading name; a solo mechanic goes by the user's name. */
+  businessName: text('business_name'),
+  specialty: text('specialty').notNull(),
+  /** Where payouts go. Often, but not always, the login phone. */
+  payoutPhone: text('payout_phone').notNull(),
+  /** Only VERIFIED providers are offered jobs (checked by an admin). */
+  verification: text('verification')
+    .$type<'PENDING' | 'VERIFIED' | 'REJECTED'>()
+    .notNull(),
+  /** The provider's "available" switch. */
+  online: boolean('online').notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * Values the business changes without a code release, such as the call-out
+ * fee. One row per key, holding the current value; a missing row means the
+ * default in settings.ts applies.
+ */
+export const settings = pgTable('settings', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull(),
+  /** The admin who last changed it. */
+  updatedBy: text('updated_by').references(() => users.id),
+  updatedAt: updatedAt(),
+});
+
+/** References to a provider point at providers.user_id. */
+const providerRef = (name: string) =>
+  text(name).references(() => providers.userId);
+
 /** The job's optional fields that are read with it but never searched on. */
 export type JobExtra = Pick<
   Job,
@@ -57,9 +124,11 @@ export const jobs = pgTable(
   'jobs',
   {
     id: text('id').primaryKey(),
-    customerId: text('customer_id').notNull(),
-    providerId: text('provider_id'),
-    offeredProviderId: text('offered_provider_id'),
+    customerId: text('customer_id')
+      .notNull()
+      .references(() => users.id),
+    providerId: providerRef('provider_id'),
+    offeredProviderId: providerRef('offered_provider_id'),
     status: text('status').$type<JobStatus>().notNull(),
     pricingMode: text('pricing_mode').$type<PricingMode>().notNull(),
     baseQuoteId: text('base_quote_id'),
@@ -171,7 +240,7 @@ export const releases = pgTable(
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id),
-    providerId: text('provider_id').notNull(),
+    providerId: providerRef('provider_id').notNull(),
     lines: jsonb('lines').$type<ReleaseLine[]>().notNull(),
     gross: cents('gross'),
     commission: cents('commission'),
@@ -192,7 +261,7 @@ export const quotes = pgTable(
       .references(() => jobs.id),
     kind: text('kind').$type<QuoteKind>().notNull(),
     issuedBy: text('issued_by').$type<QuoteIssuer>().notNull(),
-    providerId: text('provider_id'),
+    providerId: providerRef('provider_id'),
     version: integer('version').notNull(),
     status: text('status').$type<QuoteStatus>().notNull(),
     items: jsonb('items').$type<QuoteItem[]>().notNull(),
@@ -210,7 +279,7 @@ export const reliabilityEvents = pgTable(
   'reliability_events',
   {
     id: text('id').primaryKey(),
-    providerId: text('provider_id').notNull(),
+    providerId: providerRef('provider_id').notNull(),
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id),

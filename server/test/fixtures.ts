@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { JobRequestDetails } from '../../src/domain/jobs/types';
 import { calculateEstimate } from '../../src/domain/pricing/engine';
 import type { Database } from '../src/db/client';
+import { providers, users } from '../src/db/schema';
 
 export const REPAIR: JobRequestDetails = {
   requestType: 'repair',
@@ -32,8 +33,8 @@ export const OTIENO = { 'x-dev-user': 'customer:otieno' };
 export const BRIAN = { 'x-dev-user': 'provider:p1' };
 
 /** The booking body the app sends: details + the price the customer saw. */
-export function booking(details: JobRequestDetails) {
-  const estimate = calculateEstimate(details);
+export function booking(details: JobRequestDetails, callOutFee?: number) {
+  const estimate = calculateEstimate(details, callOutFee);
   return {
     ...details,
     acceptedPrice: {
@@ -45,9 +46,28 @@ export function booking(details: JobRequestDetails) {
   };
 }
 
-/** Empties every table, so each test starts from nothing. */
+/**
+ * Empties every table, so each test starts from nothing but the accounts
+ * the fixtures above sign in as.
+ */
 export async function resetTables(db: Database) {
   await db.execute(
-    sql`TRUNCATE jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
+    sql`TRUNCATE users, providers, settings, jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
   );
+  const at = new Date();
+  const account = { status: 'ACTIVE' as const, createdAt: at, updatedAt: at };
+  await db.insert(users).values([
+    { id: 'wanjiru', phone: '254700000001', name: 'Wanjiru', role: 'CUSTOMER', ...account },
+    { id: 'otieno', phone: '254700000002', name: 'Otieno', role: 'CUSTOMER', ...account },
+    { id: 'p1', phone: '254712000101', name: 'Brian', role: 'PROVIDER', ...account },
+  ]);
+  await db.insert(providers).values({
+    userId: 'p1',
+    type: 'mechanic',
+    specialty: 'Brakes',
+    payoutPhone: '254712000101',
+    verification: 'VERIFIED',
+    createdAt: at,
+    updatedAt: at,
+  });
 }

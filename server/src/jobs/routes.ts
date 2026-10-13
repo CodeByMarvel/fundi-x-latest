@@ -6,6 +6,7 @@ import type {
 import { calculateEstimate } from '../../../src/domain/pricing/engine';
 import { callerOf, requireCustomer } from '../auth';
 import type { Database } from '../db/client';
+import { getSetting } from '../settings';
 import { createJobSchema, jobIdParams, requestDetailsSchema } from './schemas';
 import { cancelJob, createJob, getJob, getJobEvents } from './service';
 
@@ -23,7 +24,10 @@ export function registerJobRoutes(app: FastifyInstance, db: Database) {
     { schema: { body: requestDetailsSchema } },
     async request => {
       requireCustomer(request);
-      return calculateEstimate(request.body);
+      return calculateEstimate(
+        request.body,
+        await getSetting(db, 'call_out_fee'),
+      );
     },
   );
 

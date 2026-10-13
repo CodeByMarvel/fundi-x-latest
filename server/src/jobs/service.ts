@@ -28,6 +28,7 @@ import {
 } from '../db/schema';
 import { NotFoundError } from '../errors';
 import { newId } from '../ids';
+import { getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
 
@@ -54,7 +55,10 @@ export async function createJob(
   input: CreateJobInput,
 ): Promise<Job> {
   const { acceptedPrice, ...details } = input;
-  const estimate = calculateEstimate(details);
+  const estimate = calculateEstimate(
+    details,
+    await getSetting(db, 'call_out_fee'),
+  );
   if (
     estimate.callOut !== acceptedPrice.callOut ||
     estimate.fixedService?.total !== acceptedPrice.fixedServiceTotal

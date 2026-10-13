@@ -15,6 +15,13 @@
       "when": 1791830031063,
       "tag": "0001_timers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791891960583,
+      "tag": "0002_users_providers_settings",
+      "breakpoints": true
     }
   ]
 }

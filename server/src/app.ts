@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerAuth } from './auth';
 import type { Database } from './db/client';
 import { errorHandler } from './errors';
 import { registerJobRoutes } from './jobs/routes';
@@ -16,6 +17,7 @@ export function buildApp({
 }) {
   const app = Fastify({ logger });
   app.setErrorHandler(errorHandler);
+  registerAuth(app, db);
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
   return app;

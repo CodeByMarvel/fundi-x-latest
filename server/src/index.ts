@@ -1,5 +1,6 @@
 import { buildApp } from './app';
 import { createDatabase } from './db/client';
+import { seedDevData } from './db/devSeed';
 import { startTimerWorker } from './timers/worker';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -7,6 +8,9 @@ const PORT = Number(process.env.PORT ?? 3000);
 const DATA_DIR = process.env.DATA_DIR ?? './data/pglite';
 
 const { db, close } = await createDatabase({ dataDir: DATA_DIR });
+if (process.env.NODE_ENV !== 'production') {
+  await seedDevData(db);
+}
 const app = buildApp({ db, logger: true });
 
 const stopTimers = startTimerWorker(db, {

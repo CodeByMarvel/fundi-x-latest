@@ -208,6 +208,7 @@ describe('the timer worker', () => {
     const dir = join(root, 'data', 'pglite');
     try {
       const first = await createDatabase({ dataDir: dir });
+      await resetTables(first.db); // This database needs its accounts too.
       const before = buildApp({ db: first.db });
       const job = (
         await before.inject({

@@ -5,10 +5,10 @@ import { line } from '../quotes/quotes';
 import { QuoteItemInput } from '../quotes/types';
 
 /**
- * Stands in for the backend's `call_out_rules` table. Flat on purpose: H3
- * ring-limited matching caps how far a provider can be sent, so one fee is
- * fair (docs/job-flow.md §3.1). Changing it is a data change, not a code
- * change, once the real backend exists.
+ * The default call-out fee. Flat on purpose: H3 ring-limited matching caps
+ * how far a provider can be sent, so one fee is fair (docs/job-flow.md
+ * §3.1). The server passes the live value from its `settings` table, so
+ * changing it is a data change, not a code change.
  */
 export const CALL_OUT_FEE = kes(800);
 
@@ -70,11 +70,14 @@ const toShillings = (cents: number): Cents => Math.round(cents / 100) * 100;
  * backend calls it again at booking, so nobody can book at a price it
  * didn't set.
  */
-export function calculateEstimate(details: JobRequestDetails): PriceEstimate {
+export function calculateEstimate(
+  details: JobRequestDetails,
+  callOutFee: Cents = CALL_OUT_FEE,
+): PriceEstimate {
   const pkg =
     details.requestType === 'service' ? CATALOG[details.categoryId] : undefined;
   if (!pkg) {
-    return { pricingMode: 'QUOTED', callOut: CALL_OUT_FEE };
+    return { pricingMode: 'QUOTED', callOut: callOutFee };
   }
 
   const premium = PREMIUM_MAKES.includes(details.vehicle.make.toLowerCase());
@@ -89,7 +92,7 @@ export function calculateEstimate(details: JobRequestDetails): PriceEstimate {
 
   return {
     pricingMode: 'FIXED',
-    callOut: CALL_OUT_FEE,
+    callOut: callOutFee,
     fixedService: { packageName: pkg.name, items, total },
   };
 }
