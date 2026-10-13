@@ -13,6 +13,7 @@ const LOCAL_ADMIN: AdminConfig = {
   googleClientId: null,
   origin: 'http://localhost:5173',
   secureCookie: false,
+  devSignIn: false,
 };
 
 /**

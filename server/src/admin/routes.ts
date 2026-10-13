@@ -1,5 +1,5 @@
-import { desc, eq, getTableColumns, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Database } from '../db/client';
 import { auditLog, settings, staff } from '../db/schema';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../errors';
@@ -11,7 +11,7 @@ import {
   settingProblem,
   type SettingKey,
 } from '../settings';
-import type { GoogleVerifier } from './google';
+import type { GoogleIdentity, GoogleVerifier } from './google';
 import { ROLE_PERMISSIONS } from './permissions';
 import {
   audit,
@@ -34,7 +34,16 @@ export type AdminConfig = {
   origin: string;
   /** Send the session cookie over HTTPS only. Off only on a laptop. */
   secureCookie: boolean;
+  /**
+   * DEVELOPMENT ONLY: a one-click "sign in as the owner" without Google.
+   * Answers only requests from this computer, and index.ts never turns it
+   * on in production.
+   */
+  devSignIn: boolean;
 };
+
+/** This computer: IPv4, IPv6, and IPv4 written as IPv6. */
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 const NOT_STAFF = 'This Google account is not allowed into the admin console';
 
@@ -65,7 +74,74 @@ export function registerAdminRoutes(
        */
       admin.get('/config', async () => ({
         googleClientId: config.googleClientId,
+        devSignIn: config.devSignIn,
       }));
+
+      /** Records the sign-in, starts a session and hands the browser its cookie. */
+      async function signIn(
+        request: FastifyRequest,
+        reply: FastifyReply,
+        member: typeof staff.$inferSelect,
+        method: 'google' | 'dev',
+        google?: GoogleIdentity,
+      ) {
+        const at = new Date();
+        const token = await db.transaction(async tx => {
+          await tx
+            .update(staff)
+            .set({
+              ...(google && {
+                googleSubject: google.subject,
+                name: member.name ?? google.name ?? null,
+              }),
+              lastLoginAt: at,
+              updatedAt: at,
+            })
+            .where(eq(staff.id, member.id));
+          await audit(tx, request, {
+            staffId: member.id,
+            action: 'staff.sign_in',
+            after: { method },
+          });
+          return createSession(tx, member.id, request, at);
+        });
+        reply.setCookie(SESSION_COOKIE, token, {
+          path: '/admin',
+          httpOnly: true, // page scripts can't read it, so injected code can't steal it
+          sameSite: 'strict',
+          secure: config.secureCookie,
+          maxAge: SESSION_TTL_MS / 1000,
+        });
+        return {
+          id: member.id,
+          email: member.email,
+          name: member.name,
+          role: member.role,
+          permissions: ROLE_PERMISSIONS[member.role],
+        };
+      }
+
+      /** DEVELOPMENT ONLY: sign in as the owner, from this computer. */
+      admin.post('/auth/dev', async (request, reply) => {
+        if (!config.devSignIn) {
+          throw new NotFoundError('Route');
+        }
+        // The server listens on the Wi-Fi too (for phones); only this
+        // computer may use the shortcut.
+        if (!LOOPBACK.has(request.ip)) {
+          throw new ForbiddenError('Development sign-in only works on this computer');
+        }
+        const [owner] = await db
+          .select()
+          .from(staff)
+          .where(and(eq(staff.role, 'OWNER'), eq(staff.status, 'ACTIVE')))
+          .orderBy(staff.createdAt)
+          .limit(1);
+        if (!owner) {
+          throw new NotFoundError('Owner account (set OWNER_EMAIL in server/.env)');
+        }
+        return signIn(request, reply, owner, 'dev');
+      });
 
       /** The admin website posts the Google credential here to sign in. */
       admin.post<{ Body: { credential: string } }>(
@@ -104,28 +180,7 @@ export function registerAdminRoutes(
             throw await deny('google_account_mismatch');
           }
 
-          const at = new Date();
-          const token = await db.transaction(async tx => {
-            await tx
-              .update(staff)
-              .set({
-                googleSubject: identity.subject,
-                name: member.name ?? identity.name ?? null,
-                lastLoginAt: at,
-                updatedAt: at,
-              })
-              .where(eq(staff.id, member.id));
-            await audit(tx, request, { staffId: member.id, action: 'staff.sign_in' });
-            return createSession(tx, member.id, request, at);
-          });
-          reply.setCookie(SESSION_COOKIE, token, {
-            path: '/admin',
-            httpOnly: true, // page scripts can't read it, so injected code can't steal it
-            sameSite: 'strict',
-            secure: config.secureCookie,
-            maxAge: SESSION_TTL_MS / 1000,
-          });
-          return { id: member.id, email, role: member.role, permissions: ROLE_PERMISSIONS[member.role] };
+          return signIn(request, reply, member, 'google', identity);
         },
       );
 

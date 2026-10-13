@@ -155,6 +155,9 @@ button:disabled {
   margin: 20px 0 12px;
   min-height: 44px;
 }
+.google-button[hidden] {
+  display: none;
+}
 
 /* Layout */
 .shell {
@@ -392,4 +395,16 @@ tr.warn td {
   .setting {
     grid-template-columns: 1fr;
   }
+}
+
+/* Development sign-in */
+.dev-signin {
+  margin: 20px 0 4px;
+}
+.dev-signin p {
+  margin: 8px 0 0;
+}
+.primary.wide {
+  width: 100%;
+  padding: 11px 18px;
 }

@@ -9,7 +9,12 @@ function change(a: AuditEntry) {
   if (a.action === 'settings.update') {
     return `${settingValue(a.targetId, a.before)} → ${settingValue(a.targetId, a.after)}`;
   }
-  const after = a.after as { email?: string; reason?: string } | null;
+  const after = a.after as
+    | { email?: string; reason?: string; method?: string }
+    | null;
+  if (a.action === 'staff.sign_in') {
+    return after?.method === 'dev' ? 'development sign-in' : after?.method ?? '';
+  }
   if (a.action === 'staff.sign_in_denied' && after) {
     return `${after.email ?? '?'} (${(after.reason ?? '').replace(/_/g, ' ')})`;
   }

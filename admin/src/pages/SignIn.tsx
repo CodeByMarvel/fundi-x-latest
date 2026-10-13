@@ -4,8 +4,7 @@ import { loadGoogle } from '../google';
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'ready' }
-  | { kind: 'not_configured' }
+  | { kind: 'ready'; google: boolean; dev: boolean }
   | { kind: 'error'; message: string };
 
 /** Why sign-in failed, in words the person signing in can act on. */
@@ -34,11 +33,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: (me: Me) => void }) {
     let cancelled = false;
     (async () => {
       try {
-        const { googleClientId } = await api<{ googleClientId: string | null }>(
-          '/config',
-        );
+        const config = await api<{
+          googleClientId: string | null;
+          devSignIn: boolean;
+        }>('/config');
+        const { googleClientId } = config;
         if (!googleClientId) {
-          setState({ kind: 'not_configured' });
+          setState({ kind: 'ready', google: false, dev: config.devSignIn });
           return;
         }
         const google = await loadGoogle();
@@ -63,7 +64,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (me: Me) => void }) {
           text: 'signin_with',
           width: 280,
         });
-        setState({ kind: 'ready' });
+        setState({ kind: 'ready', google: true, dev: config.devSignIn });
       } catch (err) {
         if (!cancelled) {
           setState({ kind: 'error', message: explain(err) });
@@ -75,16 +76,40 @@ export function SignIn({ onSignedIn }: { onSignedIn: (me: Me) => void }) {
     };
   }, [onSignedIn]);
 
+  async function devSignIn() {
+    setRefused(null);
+    try {
+      onSignedIn(await api<Me>('/auth/dev', 'POST'));
+    } catch (err) {
+      const fromServer = err instanceof ApiError && err.code !== 'unreachable';
+      setRefused(fromServer ? err.message : explain(err));
+    }
+  }
+
+  const ready = state.kind === 'ready' ? state : null;
+
   return (
     <main className="signin">
       <div className="signin-card">
         <img src="/icon-192.png" alt="" className="signin-logo" />
         <h1>Fundi-X Admin</h1>
-        <p className="muted">Staff only. Sign in with your Google account.</p>
+        <p className="muted">
+          Staff only.{ready?.google && ' Sign in with your Google account.'}
+        </p>
 
-        <div ref={button} className="google-button" hidden={state.kind !== 'ready'} />
+        <div ref={button} className="google-button" hidden={!ready?.google} />
         {state.kind === 'loading' && <p className="muted">Loading…</p>}
-        {state.kind === 'not_configured' && (
+        {ready?.dev && (
+          <div className="dev-signin">
+            <button className="primary wide" onClick={devSignIn}>
+              Sign in as owner (development)
+            </button>
+            <p className="muted small">
+              Works only on this computer, and never on the live server.
+            </p>
+          </div>
+        )}
+        {ready && !ready.google && !ready.dev && (
           <p className="notice">
             Google sign-in isn't set up yet. Add <code>GOOGLE_CLIENT_ID</code> to{' '}
             <code>server/.env</code> and restart the server.

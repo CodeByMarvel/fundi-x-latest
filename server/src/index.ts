@@ -29,6 +29,8 @@ const app = buildApp({
     googleClientId: process.env.GOOGLE_CLIENT_ID || null,
     origin: process.env.ADMIN_ORIGIN ?? 'http://localhost:5173',
     secureCookie: IS_PRODUCTION,
+    // Never in production, whatever .env says.
+    devSignIn: !IS_PRODUCTION && process.env.ADMIN_DEV_SIGN_IN === 'true',
   },
 });
 
@@ -37,6 +39,13 @@ if (owner === 'created') {
   app.log.info('Admin console owner account created from OWNER_EMAIL');
 } else if (owner === 'missing') {
   app.log.warn('No admin staff yet: set OWNER_EMAIL in server/.env');
+}
+if (process.env.ADMIN_DEV_SIGN_IN === 'true') {
+  if (IS_PRODUCTION) {
+    app.log.error('ADMIN_DEV_SIGN_IN is ignored in production: remove it');
+  } else {
+    app.log.warn('Admin development sign-in is ON (this computer only)');
+  }
 }
 if (!process.env.GOOGLE_CLIENT_ID) {
   app.log.warn('Admin sign-in is off: set GOOGLE_CLIENT_ID in server/.env');

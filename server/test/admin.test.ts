@@ -38,6 +38,7 @@ beforeAll(async () => {
       googleClientId: 'test-client-id',
       origin: ORIGIN,
       secureCookie: true,
+      devSignIn: false,
     },
   });
 });
@@ -118,7 +119,10 @@ describe('signing in', () => {
 
   it('tells the sign-in page which Google client to use', async () => {
     const res = await app.inject({ url: '/admin/config' });
-    expect(res.json()).toEqual({ googleClientId: 'test-client-id' });
+    expect(res.json()).toEqual({
+      googleClientId: 'test-client-id',
+      devSignIn: false,
+    });
   });
 
   it('refuses a credential Google did not issue', async () => {
@@ -225,5 +229,60 @@ describe('settings from the console', () => {
     );
     const times = rows.map(a => Date.parse(a.createdAt));
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+});
+
+describe('development sign-in', () => {
+  const devApp = () =>
+    buildApp({
+      db,
+      admin: {
+        verifyGoogle: fakeGoogle,
+        googleClientId: null,
+        origin: ORIGIN,
+        secureCookie: false,
+        devSignIn: true,
+      },
+    });
+  const devSignIn = (target: ReturnType<typeof buildApp>, remoteAddress = '127.0.0.1') =>
+    target.inject({
+      method: 'POST',
+      url: '/admin/auth/dev',
+      headers: { origin: ORIGIN },
+      remoteAddress,
+    });
+
+  it('does not exist unless switched on', async () => {
+    expect((await devSignIn(app)).statusCode).toBe(404);
+  });
+
+  it('signs in as the owner from this computer, and says how in the log', async () => {
+    const local = devApp();
+    const res = await devSignIn(local);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ email: 'owner@example.com', role: 'OWNER' });
+    const cookie = res.cookies.find(c => c.name === SESSION_COOKIE)!;
+    const me = await local.inject({ url: '/admin/me', cookies: { [SESSION_COOKIE]: cookie.value } });
+    expect(me.statusCode).toBe(200);
+    const [entry] = await db.select().from(auditLog).where(eq(auditLog.action, 'staff.sign_in'));
+    expect(entry.after).toEqual({ method: 'dev' });
+    await local.close();
+  });
+
+  it('refuses other devices on the Wi-Fi', async () => {
+    const local = devApp();
+    expect((await devSignIn(local, '192.168.100.23')).statusCode).toBe(403);
+    await local.close();
+  });
+
+  it('still needs the request to come from the admin console', async () => {
+    const local = devApp();
+    const res = await local.inject({
+      method: 'POST',
+      url: '/admin/auth/dev',
+      headers: { origin: 'https://evil.example' },
+    });
+    expect(res.statusCode).toBe(403);
+    await local.close();
   });
 });
