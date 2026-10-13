@@ -1,7 +1,7 @@
 module.exports = {
   preset: '@react-native/jest-preset',
-  // The backend in server/ has its own test runner.
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/server/'],
+  // server/ and admin/ are separate projects with their own tooling.
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/server/', '<rootDir>/admin/'],
   // These packages ship untranspiled ESM, so Jest must run them through Babel.
   // [/\\] matches both path separators so this also works on Windows.
   transformIgnorePatterns: [

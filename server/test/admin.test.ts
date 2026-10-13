@@ -33,7 +33,12 @@ beforeAll(async () => {
   ({ db, close } = await createDatabase());
   app = buildApp({
     db,
-    admin: { verifyGoogle: fakeGoogle, origin: ORIGIN, secureCookie: true },
+    admin: {
+      verifyGoogle: fakeGoogle,
+      googleClientId: 'test-client-id',
+      origin: ORIGIN,
+      secureCookie: true,
+    },
   });
 });
 beforeEach(async () => {
@@ -109,6 +114,11 @@ describe('signing in', () => {
     await ownerSession();
     // Same address, different Google account: refused.
     expect((await signIn('google:owner@example.com:g-other')).statusCode).toBe(403);
+  });
+
+  it('tells the sign-in page which Google client to use', async () => {
+    const res = await app.inject({ url: '/admin/config' });
+    expect(res.json()).toEqual({ googleClientId: 'test-client-id' });
   });
 
   it('refuses a credential Google did not issue', async () => {
@@ -207,7 +217,9 @@ describe('settings from the console', () => {
     const cookies = await ownerSession();
     await put(cookies, kes(900));
     const res = await app.inject({ url: '/admin/audit', cookies });
-    const rows: { action: string; createdAt: string }[] = res.json();
+    const rows: { action: string; createdAt: string; staffEmail: string }[] =
+      res.json();
+    expect(rows[0].staffEmail).toBe('owner@example.com');
     expect(rows.map(a => a.action)).toEqual(
       expect.arrayContaining(['settings.update', 'staff.sign_in']),
     );

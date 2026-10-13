@@ -26,6 +26,7 @@ const app = buildApp({
   logger: true,
   admin: {
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
+    googleClientId: process.env.GOOGLE_CLIENT_ID || null,
     origin: process.env.ADMIN_ORIGIN ?? 'http://localhost:5173',
     secureCookie: IS_PRODUCTION,
   },

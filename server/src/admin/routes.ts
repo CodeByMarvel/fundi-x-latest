@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client';
 import { auditLog, settings, staff } from '../db/schema';
@@ -24,6 +24,8 @@ import {
 
 export type AdminConfig = {
   verifyGoogle: GoogleVerifier;
+  /** Shown to the sign-in page (public by design: browsers see it anyway). */
+  googleClientId: string | null;
   /**
    * The admin website's address, e.g. https://admin.fundix.co.ke. Requests
    * that change something are refused unless the browser says they came
@@ -56,6 +58,14 @@ export function registerAdminRoutes(
           throw new ForbiddenError('Request did not come from the admin console');
         }
       });
+
+      /**
+       * What the sign-in page needs before anyone is signed in. Served from
+       * here so the website has no settings of its own to keep in sync.
+       */
+      admin.get('/config', async () => ({
+        googleClientId: config.googleClientId,
+      }));
 
       /** The admin website posts the Google credential here to sign in. */
       admin.post<{ Body: { credential: string } }>(
@@ -207,8 +217,12 @@ export function registerAdminRoutes(
           await staffOf(db, request, 'logs.view');
           const { before, limit = 50 } = request.query;
           return db
-            .select()
+            .select({
+              ...getTableColumns(auditLog),
+              staffEmail: staff.email,
+            })
             .from(auditLog)
+            .leftJoin(staff, eq(staff.id, auditLog.staffId))
             .where(before ? sql`${auditLog.createdAt} < ${new Date(before)}` : undefined)
             .orderBy(desc(auditLog.createdAt))
             .limit(limit);

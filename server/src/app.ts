@@ -10,6 +10,7 @@ import { registerJobRoutes } from './jobs/routes';
 /** Local development: no Google sign-in until GOOGLE_CLIENT_ID is set. */
 const LOCAL_ADMIN: AdminConfig = {
   verifyGoogle: googleVerifier(undefined),
+  googleClientId: null,
   origin: 'http://localhost:5173',
   secureCookie: false,
 };
