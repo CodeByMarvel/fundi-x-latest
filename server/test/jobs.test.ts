@@ -1,10 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { JobRequestDetails } from '../../src/domain/jobs/types';
-import { calculateEstimate } from '../../src/domain/pricing/engine';
 import { buildApp } from '../src/app';
 import { createDatabase, type Database } from '../src/db/client';
 import {
@@ -15,48 +13,15 @@ import {
   quotes,
   refunds,
 } from '../src/db/schema';
-
-const REPAIR: JobRequestDetails = {
-  requestType: 'repair',
-  categoryId: 'brakes',
-  vehicle: {
-    id: 'v1',
-    make: 'Toyota',
-    model: 'Fielder',
-    registration: 'KDA 123A',
-    year: 2015,
-  },
-  answers: { 'brakes.symptoms': ['noise'] },
-  description: 'Grinding when I stop',
-  drivability: 'caution',
-  location: { kind: 'home', label: 'Home', address: 'Kileleshwa' },
-  urgency: 'now',
-};
-const SERVICE: JobRequestDetails = {
-  ...REPAIR,
-  requestType: 'service',
-  categoryId: 'oil_service',
-  answers: {},
-  description: '',
-};
-
-const WANJIRU = { 'x-dev-user': 'customer:wanjiru' };
-const OTIENO = { 'x-dev-user': 'customer:otieno' };
-const BRIAN = { 'x-dev-user': 'provider:p1' };
-
-/** The booking body the app sends: details + the price the customer saw. */
-function booking(details: JobRequestDetails) {
-  const estimate = calculateEstimate(details);
-  return {
-    ...details,
-    acceptedPrice: {
-      callOut: estimate.callOut,
-      ...(estimate.fixedService && {
-        fixedServiceTotal: estimate.fixedService.total,
-      }),
-    },
-  };
-}
+import {
+  BRIAN,
+  booking,
+  OTIENO,
+  REPAIR,
+  resetTables,
+  SERVICE,
+  WANJIRU,
+} from './fixtures';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -68,11 +33,7 @@ beforeAll(async () => {
   ({ db, close } = await createDatabase());
   app = buildApp({ db });
 });
-beforeEach(async () => {
-  await db.execute(
-    sql`TRUNCATE jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events`,
-  );
-});
+beforeEach(() => resetTables(db));
 afterAll(async () => {
   await app.close();
   await close();

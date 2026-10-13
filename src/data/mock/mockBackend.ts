@@ -23,6 +23,7 @@ import {
   isProviderLate,
   NO_SHOW_WAIT_MS,
   SERVICE_PAYMENT_WINDOW_MS,
+  STK_TIMEOUT_MS,
 } from '../../domain/jobs/rules';
 import {
   applyTransition,
@@ -74,7 +75,8 @@ export const MAX_MATCHING_ROUNDS = 5;
 export const OFFER_TIMEOUT_MS = 45_000;
 export const ETA_TICK_MS = 5000;
 export const STK_SEND_MS = 1200;
-export const STK_TIMEOUT_MS = 60_000;
+// Lives in the domain now (the server uses it too); re-exported for tests.
+export { STK_TIMEOUT_MS };
 export const PAYMENT_PROCESSING_MS = 2000;
 export const REFUND_PROCESSING_MS = 3000;
 export const DISPUTE_REVIEW_MS = 15_000;

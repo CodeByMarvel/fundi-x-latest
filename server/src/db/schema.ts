@@ -219,3 +219,31 @@ export const reliabilityEvents = pgTable(
   },
   t => [index('reliability_provider_idx').on(t.providerId)],
 );
+
+/** What a timer does when it fires. Each kind has a handler in timers/. */
+export type TimerKind = 'CALL_OUT_PAYMENT_DEADLINE';
+
+/**
+ * "Do this to that job at this time", kept in the database so a restart
+ * can't lose it. The worker fires PENDING timers once due_at has passed;
+ * one that was due while the server was down fires as soon as it's back.
+ */
+export const timers = pgTable(
+  'timers',
+  {
+    id: text('id').primaryKey(),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => jobs.id),
+    kind: text('kind').$type<TimerKind>().notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    /** DONE once handled; FAILED after repeated errors (needs a person). */
+    status: text('status').$type<'PENDING' | 'DONE' | 'FAILED'>().notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  // The worker's question is always "which PENDING timers are due?".
+  t => [index('timers_due_idx').on(t.status, t.dueAt)],
+);

@@ -1,8 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
 import { commissionOn } from '../../../src/domain/billing/commission';
 import { settlementFor } from '../../../src/domain/billing/ledger';
-import { isProviderLate } from '../../../src/domain/jobs/rules';
+import {
+  CALL_OUT_PAYMENT_WINDOW_MS,
+  isProviderLate,
+} from '../../../src/domain/jobs/rules';
 import { applyTransition } from '../../../src/domain/jobs/transitions';
 import type {
   CreateJobInput,
@@ -25,6 +27,8 @@ import {
   reliabilityEvents,
 } from '../db/schema';
 import { NotFoundError } from '../errors';
+import { newId } from '../ids';
+import { scheduleTimer } from '../timers/schedule';
 import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
 
 /**
@@ -32,8 +36,6 @@ import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
  * apply the domain rule → save everything in ONE transaction → return.
  * The rules themselves come from src/domain, the same code the apps run.
  */
-
-const newId = (prefix: string) => `${prefix}_${randomUUID()}`;
 
 /** Customers see their own jobs; providers see jobs offered or assigned to them. */
 function canSee(caller: Caller, job: Job) {
@@ -114,6 +116,13 @@ export async function createJob(
         createdAt: at,
       });
     }
+    // Saved with the booking: if the booking exists, so does its deadline.
+    await scheduleTimer(tx, {
+      jobId: job.id,
+      kind: 'CALL_OUT_PAYMENT_DEADLINE',
+      dueAt: new Date(at.getTime() + CALL_OUT_PAYMENT_WINDOW_MS),
+      at,
+    });
     await tx.insert(jobEvents).values({
       id: newId('evt'),
       jobId: job.id,
@@ -127,7 +136,6 @@ export async function createJob(
       createdAt: at,
     });
   });
-  // TODO(next slice): start the 30-minute call-out payment timer.
   return job;
 }
 
@@ -220,7 +228,7 @@ export async function cancelJob(
  * records the refunds and payout in the same transaction as the status
  * change, so the two can never disagree.
  */
-async function settle(tx: Tx, job: Job, at: Date) {
+export async function settle(tx: Tx, job: Job, at: Date) {
   const paid = (
     await tx.select().from(payments).where(eq(payments.jobId, job.id))
   ).map(toPayment);

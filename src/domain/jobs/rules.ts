@@ -17,6 +17,13 @@ export const SERVICE_PAYMENT_WINDOW_MS = 30 * MINUTE;
 /** After the promised arrival time, how long before the provider counts as late. */
 export const LATE_GRACE_MS = 20 * MINUTE;
 
+/**
+ * How long an M-Pesa PIN prompt stays open. A deadline that falls while the
+ * customer is still entering their PIN waits this long instead of cutting
+ * them off mid-payment.
+ */
+export const STK_TIMEOUT_MS = 60_000;
+
 /** A customer who neither confirms nor disputes is taken to confirm after this. */
 export const AUTO_CONFIRM_MS = 48 * 60 * MINUTE;
 
