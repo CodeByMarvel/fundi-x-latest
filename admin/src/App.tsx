@@ -1,24 +1,45 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, SIGNED_OUT_EVENT, type Me, type Permission } from './api';
 import { AuditLog } from './pages/AuditLog';
-import { Overview } from './pages/Overview';
+import { Dashboard } from './pages/Dashboard';
+import { Engineering } from './pages/Engineering';
+import { JobDetail } from './pages/JobDetail';
+import { Jobs } from './pages/Jobs';
 import { Settings } from './pages/Settings';
 import { SignIn } from './pages/SignIn';
+import { href, useRoute, type Route } from './route';
 
-type Page = 'overview' | 'settings' | 'audit';
+type NavItem = { route: Route; label: string; needs?: Permission };
 
-/** Pages, and the permission each needs. Hidden from anyone without it. */
-const PAGES: { id: Page; label: string; needs?: Permission }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'settings', label: 'Settings', needs: 'settings.edit' },
-  { id: 'audit', label: 'Audit log', needs: 'logs.view' },
+/**
+ * The portal's sections (docs/admin-portal.md §3). Only built sections are
+ * listed, and each item only for people allowed to open it.
+ */
+const SECTIONS: { title?: string; items: NavItem[] }[] = [
+  { items: [{ route: { page: 'dashboard' }, label: 'Dashboard' }] },
+  { title: 'Operations', items: [{ route: { page: 'jobs' }, label: 'Jobs', needs: 'jobs.view' }] },
+  {
+    title: 'Engineering',
+    items: [{ route: { page: 'engineering' }, label: 'System health', needs: 'logs.view' }],
+  },
+  {
+    title: 'Configuration',
+    items: [{ route: { page: 'settings' }, label: 'Settings', needs: 'settings.edit' }],
+  },
+  {
+    title: 'Security',
+    items: [{ route: { page: 'audit' }, label: 'Audit log', needs: 'logs.view' }],
+  },
 ];
+
+/** Job detail belongs to Jobs in the menu. */
+const sectionOf = (route: Route) => (route.page === 'job' ? 'jobs' : route.page);
 
 export function App() {
   // undefined: still checking for a session; null: signed out.
   const [me, setMe] = useState<Me | null | undefined>(undefined);
-  const [page, setPage] = useState<Page>('overview');
   const [startupError, setStartupError] = useState<string | null>(null);
+  const route = useRoute();
 
   useEffect(() => {
     api<Me>('/me').then(setMe, err => {
@@ -40,7 +61,6 @@ export function App() {
 
   const onSignedIn = useCallback((who: Me) => {
     setStartupError(null);
-    setPage('overview');
     setMe(who);
   }, []);
 
@@ -61,25 +81,36 @@ export function App() {
     );
   }
 
-  const visible = PAGES.filter(p => can(p.needs));
+  const current = sectionOf(route);
 
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">
+        <a className="brand" href={href({ page: 'dashboard' })}>
           <img src="/icon-192.png" alt="" />
           <span>Fundi-X Admin</span>
-        </div>
+        </a>
         <nav>
-          {visible.map(p => (
-            <button
-              key={p.id}
-              className={p.id === page ? 'nav-item active' : 'nav-item'}
-              onClick={() => setPage(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
+          {SECTIONS.map(section => {
+            const items = section.items.filter(i => can(i.needs));
+            if (!items.length) {
+              return null;
+            }
+            return (
+              <div key={section.title ?? 'top'} className="nav-group">
+                {section.title && <span className="nav-title">{section.title}</span>}
+                {items.map(i => (
+                  <a
+                    key={i.label}
+                    href={href(i.route)}
+                    className={i.route.page === current ? 'nav-item active' : 'nav-item'}
+                  >
+                    {i.label}
+                  </a>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="who">
           <span className="who-email">{me.email}</span>
@@ -90,10 +121,29 @@ export function App() {
         </div>
       </aside>
       <main className="content">
-        {page === 'overview' && <Overview can={can} go={setPage} />}
-        {page === 'settings' && can('settings.edit') && <Settings />}
-        {page === 'audit' && can('logs.view') && <AuditLog />}
+        <Page route={route} can={can} />
       </main>
     </div>
   );
+}
+
+function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }) {
+  switch (route.page) {
+    case 'jobs':
+      return can('jobs.view') ? <Jobs key={href(route)} route={route} /> : <NotAllowed />;
+    case 'job':
+      return can('jobs.view') ? <JobDetail key={route.id} id={route.id} /> : <NotAllowed />;
+    case 'engineering':
+      return can('logs.view') ? <Engineering can={can} /> : <NotAllowed />;
+    case 'settings':
+      return can('settings.edit') ? <Settings /> : <NotAllowed />;
+    case 'audit':
+      return can('logs.view') ? <AuditLog /> : <NotAllowed />;
+    default:
+      return <Dashboard can={can} />;
+  }
+}
+
+function NotAllowed() {
+  return <p className="notice">Your role doesn't include this page.</p>;
 }

@@ -75,6 +75,8 @@ export type Permission =
   | 'providers.verify'
   | 'settings.edit'
   | 'logs.view'
+  | 'incidents.resolve'
+  | 'timers.retry'
   | 'staff.manage';
 
 export type Me = {
@@ -102,7 +104,172 @@ export type AuditEntry = {
   targetId: string | null;
   before: unknown;
   after: unknown;
+  reason: string | null;
   ip: string | null;
   requestId: string | null;
   createdAt: string;
+};
+
+export type JobStatus =
+  | 'CALL_OUT_PAYMENT_PENDING'
+  | 'SEARCHING'
+  | 'OFFERED'
+  | 'ACCEPTED'
+  | 'EN_ROUTE'
+  | 'ARRIVED'
+  | 'DIAGNOSING'
+  | 'QUOTE_SENT'
+  | 'SERVICE_PAYMENT_PENDING'
+  | 'IN_PROGRESS'
+  | 'AWAITING_CONFIRMATION'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'DISPUTED';
+
+type Vehicle = { make: string; model: string; registration: string; year?: number };
+
+export type JobRequest = {
+  requestType: 'repair' | 'service';
+  categoryId: string;
+  vehicle: Vehicle;
+  description: string;
+  drivability: string;
+  urgency: string;
+  location: { label: string; address?: string };
+  answers: Record<string, string[]>;
+};
+
+export type JobListRow = {
+  id: string;
+  status: JobStatus;
+  pricingMode: 'FIXED' | 'QUOTED';
+  request: JobRequest;
+  createdAt: string;
+  updatedAt: string;
+  customer: { id: string; name: string; phone: string } | null;
+  provider: { id: string; name: string } | null;
+};
+
+export type JobEvent = {
+  id: string;
+  fromStatus: JobStatus | null;
+  toStatus: JobStatus;
+  actor: 'CUSTOMER' | 'PROVIDER' | 'SYSTEM';
+  metadata: Record<string, string | number | boolean | null> | null;
+  createdAt: string;
+};
+
+export type Timer = {
+  id: string;
+  jobId: string;
+  kind: string;
+  dueAt: string;
+  status: 'PENDING' | 'DONE' | 'FAILED';
+  attempts: number;
+  lastError: string | null;
+  updatedAt: string;
+};
+
+export type Incident = {
+  id: string;
+  kind: 'server_error' | 'timer_failed' | 'timer_worker_error';
+  title: string;
+  detail: Record<string, unknown> | null;
+  jobId: string | null;
+  lastRequestId: string | null;
+  count: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  status: 'OPEN' | 'RESOLVED';
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+};
+
+export type JobDetail = {
+  job: JobRequest & {
+    id: string;
+    status: JobStatus;
+    pricingMode: 'FIXED' | 'QUOTED';
+    createdAt: string;
+    updatedAt: string;
+    completedAt?: string;
+    cancellation?: { by: string; reason: string; fromStatus: JobStatus };
+  };
+  customer: { id: string; name: string; phone: string; status: string } | null;
+  provider: {
+    id: string;
+    name: string;
+    phone: string;
+    status: string;
+    type: string;
+    businessName: string | null;
+    specialty: string;
+    verification: string;
+    online: boolean;
+  } | null;
+  providerIsOffer: boolean;
+  money: {
+    charged: number;
+    paid: number;
+    refunded: number;
+    releasedToProvider: number;
+    commission: number;
+    heldInEscrow: number;
+  };
+  events: JobEvent[];
+  charges: { id: string; purpose: string; amount: number; description: string; createdAt: string }[];
+  payments: {
+    id: string;
+    purpose: string;
+    amount: number;
+    status: string;
+    phone: string;
+    receiptNumber: string | null;
+    failureReason: string | null;
+    createdAt: string;
+  }[];
+  refunds: { id: string; amount: number; reason: string; status: string; createdAt: string }[];
+  releases: { id: string; gross: number; commission: number; net: number; createdAt: string }[];
+  quotes: {
+    id: string;
+    kind: string;
+    issuedBy: string;
+    version: number;
+    status: string;
+    total: number;
+    note: string | null;
+    items: {
+      id: string;
+      serviceCode: string;
+      kind: string;
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      total: number;
+    }[];
+    createdAt: string;
+  }[];
+  timers: Timer[];
+  incidents: Incident[];
+};
+
+export type SystemNumbers = {
+  timersPending: number;
+  timersOverdue: number;
+  timersFailed: number;
+  incidentsOpen: number;
+};
+
+export type Health = SystemNumbers & {
+  database: { ok: boolean; responseMs: number };
+  uptimeSeconds: number;
+};
+
+export type Dashboard = {
+  system?: SystemNumbers;
+  jobs?: {
+    active: Partial<Record<JobStatus, number>>;
+    today: { created: number; completed: number; cancelled: number };
+  };
+  settings?: { callOutFee: number };
 };

@@ -9,6 +9,7 @@
   --text-muted: #6b7280;
   --border: #eceff1;
   --success: #16a34a;
+  --success-surface: #f0fdf4;
   --warning: #b45309;
   --warning-surface: #fffbeb;
   --error: #dc2626;
@@ -24,6 +25,7 @@
     --text-muted: #9ca3af;
     --border: #2c2c3a;
     --success: #4ade80;
+    --success-surface: #13291b;
     --warning: #fbbf24;
     --warning-surface: #2e2512;
     --error: #f87171;
@@ -56,6 +58,14 @@ code,
 .mono {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.9em;
+}
+a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+a:hover {
+  text-decoration: underline;
 }
 button {
   font: inherit;
@@ -174,6 +184,7 @@ button:disabled {
   gap: 20px;
 }
 .brand {
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -188,18 +199,30 @@ button:disabled {
 nav {
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+.nav-group {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
 }
+.nav-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 10px 2px;
+}
 .nav-item {
-  text-align: left;
-  background: none;
-  border: 0;
   border-radius: 8px;
-  padding: 9px 10px;
+  padding: 8px 10px;
   color: var(--text);
+  font-weight: 400;
 }
 .nav-item:hover {
   background: var(--bg);
+  text-decoration: none;
 }
 .nav-item.active {
   background: var(--primary-surface);
@@ -229,6 +252,7 @@ nav {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 /* Cards and panels */
@@ -248,13 +272,16 @@ nav {
 .panel {
   margin-bottom: 14px;
 }
-.card h2 {
+.card h3 {
   color: var(--text-muted);
   font-weight: 500;
   font-size: 13px;
+  margin: 0 0 6px;
 }
 .card.clickable {
   cursor: pointer;
+  color: var(--text);
+  text-decoration: none;
 }
 .card.clickable:hover {
   border-color: var(--primary);
@@ -368,6 +395,315 @@ tr.warn td {
   background: var(--warning-surface);
 }
 
+/* Status badges: tone = family of statuses (see jobStatus.ts). */
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.badge.wait {
+  background: var(--warning-surface);
+  color: var(--warning);
+  border-color: transparent;
+}
+.badge.active {
+  background: var(--primary-surface);
+  color: var(--primary);
+  border-color: transparent;
+}
+.badge.done {
+  background: var(--success-surface);
+  color: var(--success);
+  border-color: transparent;
+}
+.badge.bad {
+  background: var(--error-surface);
+  color: var(--error);
+  border-color: transparent;
+}
+
+/* Dashboard */
+.alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.alert {
+  display: block;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.alert.ok {
+  background: var(--success-surface);
+  color: var(--success);
+}
+.alert.bad {
+  background: var(--error-surface);
+  color: var(--error);
+}
+.alert.warn {
+  background: var(--warning-surface);
+  color: var(--warning);
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 22px;
+}
+.section-head h2 {
+  margin: 0;
+}
+.section-head + .cards {
+  margin-top: 10px;
+}
+
+/* Lists, filters, tabs */
+.filters {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.search,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+.search {
+  flex: 1;
+  min-width: 220px;
+}
+.search:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.clickable-rows tbody tr {
+  cursor: pointer;
+}
+.clickable-rows tbody tr:hover td {
+  background: var(--bg);
+}
+.num {
+  text-align: right;
+  white-space: nowrap;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+.tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 12px;
+  color: var(--text-muted);
+}
+.tab.active {
+  background: var(--primary-surface);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Job detail */
+.job-head {
+  margin-top: 10px;
+  align-items: flex-start;
+}
+.job-head h1 {
+  margin-bottom: 2px;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.grid-2 .panel {
+  margin: 0;
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+dt {
+  color: var(--text-muted);
+}
+dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+dl.money dd {
+  text-align: right;
+}
+.stepper {
+  list-style: none;
+  display: flex;
+  margin: 14px 0 6px;
+  padding: 0;
+  overflow-x: auto;
+}
+.stepper li {
+  flex: 1;
+  min-width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.stepper li::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+}
+.stepper li:first-child::before {
+  display: none;
+}
+.stepper .dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  margin-bottom: 6px;
+}
+.stepper li.reached .dot {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.stepper li.reached::before,
+.stepper li.current::before {
+  background: var(--primary);
+}
+.stepper li.current .dot {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-surface);
+}
+.stepper li.current {
+  color: var(--text);
+  font-weight: 700;
+}
+.step-label {
+  padding: 0 4px;
+}
+.timeline {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.timeline li {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.timeline .time {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.records h3,
+.quote p {
+  font-size: 13px;
+  margin: 14px 0 6px;
+}
+.records table td,
+.quote table td {
+  padding: 6px 10px;
+}
+.alert-panel {
+  border-color: var(--error);
+}
+
+/* Engineering */
+.item {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+.item.bad {
+  border-left-color: var(--error);
+}
+.item.warn {
+  border-left-color: var(--warning);
+}
+.item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.item-head > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.detail {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 10px 0 0;
+  max-height: 320px;
+}
+
+/* Required reasons */
+.reason-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.reason-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reason-form textarea {
+  resize: vertical;
+  width: 100%;
+}
+.setting-confirm {
+  grid-column: 1 / -1;
+}
+
 /* Phones: sidebar becomes a top bar. */
 @media (max-width: 720px) {
   .shell {
@@ -382,6 +718,32 @@ tr.warn td {
   nav {
     flex-direction: row;
     overflow-x: auto;
+    gap: 2px;
+  }
+  .nav-group {
+    flex-direction: row;
+  }
+  .nav-title {
+    display: none;
+  }
+  .nav-item {
+    white-space: nowrap;
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .job-head {
+    flex-direction: column;
+  }
+  .job-head h1 {
+    font-size: 20px;
+  }
+  .job-head .mono {
+    overflow-wrap: anywhere;
+  }
+  .timeline li {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
   .who {
     flex-direction: row;

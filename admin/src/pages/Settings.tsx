@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, ApiError, type SettingRow } from '../api';
+import { api, type SettingRow } from '../api';
+import { ReasonForm } from '../components/ReasonForm';
 import { ksh, SETTINGS, when } from '../format';
 
 export function Settings() {
@@ -16,8 +17,8 @@ export function Settings() {
     <>
       <h1>Settings</h1>
       <p className="muted">
-        Business values that change without an app update. Every change is
-        recorded in the audit log with its old and new value.
+        Business values that change without an app update. Every change needs
+        a reason and is recorded in the audit log with its old and new value.
       </p>
       {error && <p className="notice error">{error}</p>}
       {rows === null && !error && <p className="muted">Loading…</p>}
@@ -28,43 +29,18 @@ export function Settings() {
   );
 }
 
-/** Edited in shillings; stored in cents. */
+/** Edited in shillings; stored in cents. Saving asks why. */
 function MoneySetting({ row, onSaved }: { row: SettingRow; onSaved: () => void }) {
   const meta = SETTINGS[row.key];
   const current = (row.value as number) / 100;
   const [draft, setDraft] = useState(String(current));
-  const [status, setStatus] = useState<
-    { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved' } | { kind: 'error'; message: string }
-  >({ kind: 'idle' });
+  const [confirming, setConfirming] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => setDraft(String(current)), [current]);
 
   const shillings = Number(draft);
-  const changed = draft.trim() !== '' && shillings !== current;
-
-  async function save() {
-    if (!Number.isFinite(shillings)) {
-      setStatus({ kind: 'error', message: 'Enter an amount in shillings.' });
-      return;
-    }
-    const sure = window.confirm(
-      `Change ${meta?.label ?? row.key} from ${ksh(current * 100)} to ${ksh(shillings * 100)}?`,
-    );
-    if (!sure) {
-      return;
-    }
-    setStatus({ kind: 'saving' });
-    try {
-      await api(`/settings/${row.key}`, 'PUT', { value: Math.round(shillings * 100) });
-      setStatus({ kind: 'saved' });
-      onSaved();
-    } catch (err) {
-      setStatus({
-        kind: 'error',
-        message: err instanceof ApiError ? err.message : 'Could not save.',
-      });
-    }
-  }
+  const changed = draft.trim() !== '' && Number.isFinite(shillings) && shillings !== current;
 
   return (
     <section className="panel setting">
@@ -80,7 +56,7 @@ function MoneySetting({ row, onSaved }: { row: SettingRow; onSaved: () => void }
         className="setting-form"
         onSubmit={e => {
           e.preventDefault();
-          save();
+          setConfirming(true);
         }}
       >
         <label className="money-input">
@@ -88,19 +64,42 @@ function MoneySetting({ row, onSaved }: { row: SettingRow; onSaved: () => void }
           <input
             inputMode="numeric"
             value={draft}
+            disabled={confirming}
             onChange={e => {
               setDraft(e.target.value.replace(/[^\d]/g, ''));
-              setStatus({ kind: 'idle' });
+              setSaved(false);
             }}
             aria-label={`${meta?.label ?? row.key} in shillings`}
           />
         </label>
-        <button className="primary" disabled={!changed || status.kind === 'saving'}>
-          {status.kind === 'saving' ? 'Saving…' : 'Save'}
-        </button>
-        {status.kind === 'saved' && <span className="ok small">Saved</span>}
-        {status.kind === 'error' && <span className="error small">{status.message}</span>}
+        {!confirming && (
+          <button className="primary" disabled={!changed}>
+            Save
+          </button>
+        )}
+        {saved && <span className="ok small">Saved</span>}
       </form>
+      {confirming && (
+        <div className="setting-confirm">
+          <ReasonForm
+            prompt={`Change ${meta?.label.toLowerCase() ?? row.key} from ${ksh(current * 100)} to ${ksh(shillings * 100)}. Why?`}
+            confirmLabel="Change it"
+            onCancel={() => {
+              setConfirming(false);
+              setDraft(String(current));
+            }}
+            onSubmit={async reason => {
+              await api(`/settings/${row.key}`, 'PUT', {
+                value: Math.round(shillings * 100),
+                reason,
+              });
+              setConfirming(false);
+              setSaved(true);
+              onSaved();
+            }}
+          />
+        </div>
+      )}
     </section>
   );
 }

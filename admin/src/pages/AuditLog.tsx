@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type AuditEntry } from '../api';
-import { ACTIONS, isWarning, settingValue, when } from '../format';
+import { ACTIONS, isWarning, settingValue, shortId, when } from '../format';
 
 const PAGE = 50;
 
@@ -12,6 +12,13 @@ function change(a: AuditEntry) {
   const after = a.after as
     | { email?: string; reason?: string; method?: string }
     | null;
+  if (a.action === 'timer.retry') {
+    const job = (a.after as { jobId?: string } | null)?.jobId;
+    return job ? `timer on ${shortId(job)}` : '';
+  }
+  if (a.action === 'incident.resolve') {
+    return (a.before as { title?: string } | null)?.title ?? '';
+  }
   if (a.action === 'staff.sign_in') {
     return after?.method === 'dev' ? 'development sign-in' : after?.method ?? '';
   }
@@ -53,8 +60,8 @@ export function AuditLog() {
         </button>
       </div>
       <p className="muted">
-        Everything done in this console, and every sign-in attempt. Entries
-        are never edited or deleted.
+        Everything done in this console, and every sign-in attempt: who,
+        what, when and why. Entries are never edited or deleted.
       </p>
       {error && <p className="notice error">{error}</p>}
       <div className="table-wrap">
@@ -65,6 +72,7 @@ export function AuditLog() {
               <th>Who</th>
               <th>What</th>
               <th>Details</th>
+              <th>Why</th>
               <th>IP</th>
             </tr>
           </thead>
@@ -80,6 +88,7 @@ export function AuditLog() {
                   )}
                 </td>
                 <td className="nowrap">{change(a)}</td>
+                <td>{a.reason ?? ''}</td>
                 <td className="muted small mono">{a.ip ?? ''}</td>
               </tr>
             ))}
