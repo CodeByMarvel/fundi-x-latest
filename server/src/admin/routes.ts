@@ -1,0 +1,220 @@
+import { desc, eq, sql } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import type { Database } from '../db/client';
+import { auditLog, settings, staff } from '../db/schema';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../errors';
+import {
+  getSetting,
+  isSettingKey,
+  setSetting,
+  SETTING_DEFAULTS,
+  settingProblem,
+  type SettingKey,
+} from '../settings';
+import type { GoogleVerifier } from './google';
+import { ROLE_PERMISSIONS } from './permissions';
+import {
+  audit,
+  createSession,
+  revokeSession,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  staffOf,
+} from './session';
+
+export type AdminConfig = {
+  verifyGoogle: GoogleVerifier;
+  /**
+   * The admin website's address, e.g. https://admin.fundix.co.ke. Requests
+   * that change something are refused unless the browser says they came
+   * from there, so another site can't act with your session.
+   */
+  origin: string;
+  /** Send the session cookie over HTTPS only. Off only on a laptop. */
+  secureCookie: boolean;
+};
+
+const NOT_STAFF = 'This Google account is not allowed into the admin console';
+
+/**
+ * The admin console's API, all under /admin. Each endpoint asks staffOf()
+ * for the permission it needs; the dev x-dev-user identities used by the
+ * phone app mean nothing here.
+ */
+export function registerAdminRoutes(
+  app: FastifyInstance,
+  db: Database,
+  config: AdminConfig,
+) {
+  app.register(
+    async admin => {
+      admin.addHook('onRequest', async request => {
+        const changesSomething = !['GET', 'HEAD', 'OPTIONS'].includes(
+          request.method,
+        );
+        if (changesSomething && request.headers.origin !== config.origin) {
+          throw new ForbiddenError('Request did not come from the admin console');
+        }
+      });
+
+      /** The admin website posts the Google credential here to sign in. */
+      admin.post<{ Body: { credential: string } }>(
+        '/auth/google',
+        {
+          schema: {
+            body: {
+              type: 'object',
+              required: ['credential'],
+              additionalProperties: false,
+              properties: { credential: { type: 'string', minLength: 1, maxLength: 4096 } },
+            },
+          },
+        },
+        async (request, reply) => {
+          const identity = await config.verifyGoogle(request.body.credential);
+          const email = identity.email.toLowerCase();
+          const [member] = await db.select().from(staff).where(eq(staff.email, email));
+
+          // Recorded before refusing: repeated denied attempts are worth seeing.
+          const deny = async (reason: string) => {
+            await audit(db, request, {
+              staffId: member?.id ?? null,
+              action: 'staff.sign_in_denied',
+              after: { email, reason },
+            });
+            return new ForbiddenError(NOT_STAFF);
+          };
+          if (!member) {
+            throw await deny('not_staff');
+          }
+          if (member.status !== 'ACTIVE') {
+            throw await deny('disabled');
+          }
+          if (member.googleSubject && member.googleSubject !== identity.subject) {
+            throw await deny('google_account_mismatch');
+          }
+
+          const at = new Date();
+          const token = await db.transaction(async tx => {
+            await tx
+              .update(staff)
+              .set({
+                googleSubject: identity.subject,
+                name: member.name ?? identity.name ?? null,
+                lastLoginAt: at,
+                updatedAt: at,
+              })
+              .where(eq(staff.id, member.id));
+            await audit(tx, request, { staffId: member.id, action: 'staff.sign_in' });
+            return createSession(tx, member.id, request, at);
+          });
+          reply.setCookie(SESSION_COOKIE, token, {
+            path: '/admin',
+            httpOnly: true, // page scripts can't read it, so injected code can't steal it
+            sameSite: 'strict',
+            secure: config.secureCookie,
+            maxAge: SESSION_TTL_MS / 1000,
+          });
+          return { id: member.id, email, role: member.role, permissions: ROLE_PERMISSIONS[member.role] };
+        },
+      );
+
+      admin.post('/auth/sign-out', async (request, reply) => {
+        const staffId = await revokeSession(db, request.cookies[SESSION_COOKIE]);
+        if (staffId) {
+          await audit(db, request, { staffId, action: 'staff.sign_out' });
+        }
+        reply.clearCookie(SESSION_COOKIE, { path: '/admin' });
+        return { ok: true };
+      });
+
+      /** Who's signed in, and what the page should let them do. */
+      admin.get('/me', async request => {
+        const me = await staffOf(db, request);
+        return { ...me, permissions: ROLE_PERMISSIONS[me.role] };
+      });
+
+      admin.get('/settings', async request => {
+        await staffOf(db, request, 'settings.edit');
+        const saved = await db.select().from(settings);
+        return (Object.keys(SETTING_DEFAULTS) as SettingKey[]).map(key => {
+          const row = saved.find(s => s.key === key);
+          return {
+            key,
+            value: row?.value ?? SETTING_DEFAULTS[key],
+            default: SETTING_DEFAULTS[key],
+            updatedBy: row?.updatedBy ?? null,
+            updatedAt: row?.updatedAt ?? null,
+          };
+        });
+      });
+
+      admin.put<{ Params: { key: string }; Body: { value: unknown } }>(
+        '/settings/:key',
+        {
+          schema: {
+            body: {
+              type: 'object',
+              required: ['value'],
+              additionalProperties: false,
+              properties: { value: {} },
+            },
+          },
+        },
+        async request => {
+          const me = await staffOf(db, request, 'settings.edit');
+          const { key } = request.params;
+          if (!isSettingKey(key)) {
+            throw new NotFoundError('Setting');
+          }
+          const problem = settingProblem(key, request.body.value);
+          if (problem) {
+            throw new BadRequestError(problem);
+          }
+          const value = request.body.value as (typeof SETTING_DEFAULTS)[typeof key];
+          await db.transaction(async tx => {
+            const before = await getSetting(tx, key);
+            await setSetting(tx, key, value, me.id);
+            await audit(tx, request, {
+              staffId: me.id,
+              action: 'settings.update',
+              targetType: 'setting',
+              targetId: key,
+              before,
+              after: value,
+            });
+          });
+          return { key, value };
+        },
+      );
+
+      /** Most recent first. `before` (an ISO time) pages further back. */
+      admin.get<{ Querystring: { before?: string; limit?: number } }>(
+        '/audit',
+        {
+          schema: {
+            querystring: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                before: { type: 'string', format: 'date-time' },
+                limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+              },
+            },
+          },
+        },
+        async request => {
+          await staffOf(db, request, 'logs.view');
+          const { before, limit = 50 } = request.query;
+          return db
+            .select()
+            .from(auditLog)
+            .where(before ? sql`${auditLog.createdAt} < ${new Date(before)}` : undefined)
+            .orderBy(desc(auditLog.createdAt))
+            .limit(limit);
+        },
+      );
+    },
+    { prefix: '/admin' },
+  );
+}

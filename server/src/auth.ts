@@ -17,7 +17,6 @@ declare module 'fastify' {
 const DEV_ROLES: Record<string, UserRole> = {
   customer: 'CUSTOMER',
   provider: 'PROVIDER',
-  admin: 'ADMIN',
 };
 
 /**

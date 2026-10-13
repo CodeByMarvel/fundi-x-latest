@@ -1,17 +1,45 @@
+import { existsSync } from 'node:fs';
+import { ensureOwner } from './admin/bootstrap';
+import { googleVerifier } from './admin/google';
 import { buildApp } from './app';
 import { createDatabase } from './db/client';
 import { seedDevData } from './db/devSeed';
 import { startTimerWorker } from './timers/worker';
 
+// Local configuration and secrets (never committed); see .env.example.
+// On a host, the same names are set in its environment settings instead.
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT ?? 3000);
 // Data survives restarts in ./data; delete the folder to start over.
 const DATA_DIR = process.env.DATA_DIR ?? './data/pglite';
 
 const { db, close } = await createDatabase({ dataDir: DATA_DIR });
-if (process.env.NODE_ENV !== 'production') {
+if (!IS_PRODUCTION) {
   await seedDevData(db);
 }
-const app = buildApp({ db, logger: true });
+const app = buildApp({
+  db,
+  logger: true,
+  admin: {
+    verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
+    origin: process.env.ADMIN_ORIGIN ?? 'http://localhost:5173',
+    secureCookie: IS_PRODUCTION,
+  },
+});
+
+const owner = await ensureOwner(db, process.env.OWNER_EMAIL);
+if (owner === 'created') {
+  app.log.info('Admin console owner account created from OWNER_EMAIL');
+} else if (owner === 'missing') {
+  app.log.warn('No admin staff yet: set OWNER_EMAIL in server/.env');
+}
+if (!process.env.GOOGLE_CLIENT_ID) {
+  app.log.warn('Admin sign-in is off: set GOOGLE_CLIENT_ID in server/.env');
+}
 
 const stopTimers = startTimerWorker(db, {
   onRun: run => app.log.info({ timers: run }, 'timers fired'),

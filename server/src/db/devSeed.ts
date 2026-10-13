@@ -17,7 +17,6 @@ export async function seedDevData(db: Database) {
       { id: 'p1', phone: '254712000101', name: 'Brian Otieno', role: 'PROVIDER', ...stamp },
       { id: 'p2', phone: '254722000202', name: 'James Mwangi', role: 'PROVIDER', ...stamp },
       { id: 'p3', phone: '254733000303', name: 'Grace Wanjiku', role: 'PROVIDER', ...stamp },
-      { id: 'admin-1', phone: '254700000099', name: 'Fundi-X Ops', role: 'ADMIN', ...stamp },
     ])
     .onConflictDoNothing();
 

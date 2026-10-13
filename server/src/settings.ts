@@ -17,6 +17,26 @@ export const SETTING_DEFAULTS = {
 export type Settings = typeof SETTING_DEFAULTS;
 export type SettingKey = keyof Settings;
 
+export const isSettingKey = (key: string): key is SettingKey =>
+  Object.hasOwn(SETTING_DEFAULTS, key);
+
+/**
+ * What counts as a sensible value for each setting, checked before an
+ * admin change is saved. Returns the problem, or null if it's fine.
+ */
+const RULES: { [K in SettingKey]: (value: unknown) => string | null } = {
+  call_out_fee: value =>
+    Number.isInteger(value) &&
+    (value as number) >= 10_000 && // KSh 100
+    (value as number) <= 1_000_000 && // KSh 10,000
+    (value as number) % 100 === 0
+      ? null
+      : 'Call-out fee must be whole shillings between KSh 100 and KSh 10,000 (in cents)',
+};
+
+export const settingProblem = (key: SettingKey, value: unknown) =>
+  RULES[key](value);
+
 /** The current value: the saved row if there is one, otherwise the default. */
 export async function getSetting<K extends SettingKey>(
   db: Database | Tx,

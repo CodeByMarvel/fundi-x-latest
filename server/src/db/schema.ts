@@ -45,10 +45,10 @@ const cents = (name: string) => bigint(name, { mode: 'number' }).notNull();
 
 /** What an account is for. One person can hold a customer and a provider
  * account on the same phone: they're separate, like Uber's rider and
- * driver apps. */
-export type UserRole = 'CUSTOMER' | 'PROVIDER' | 'ADMIN';
+ * driver apps. Fundi-X staff are not users: see `staff`. */
+export type UserRole = 'CUSTOMER' | 'PROVIDER';
 
-/** Everyone who signs in: customers, providers and Fundi-X staff. */
+/** Everyone who signs in to the phone app: customers and providers. */
 export const users = pgTable(
   'users',
   {
@@ -97,10 +97,83 @@ export const providers = pgTable('providers', {
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: jsonb('value').notNull(),
-  /** The admin who last changed it. */
-  updatedBy: text('updated_by').references(() => users.id),
+  /** The staff member who last changed it. */
+  updatedBy: text('updated_by').references(() => staff.id),
   updatedAt: updatedAt(),
 });
+
+/**
+ * Fundi-X people who use the admin console. Kept apart from app users:
+ * they sign in differently (Google, by email) and can move money, so a
+ * weakness in phone login can never reach this side. What each one may do
+ * comes from `role` (see admin/permissions.ts).
+ */
+export const staff = pgTable('staff', {
+  id: text('id').primaryKey(),
+  /** Stored lowercase. Only these addresses can sign in. */
+  email: text('email').notNull().unique(),
+  name: text('name'),
+  role: text('role').$type<StaffRole>().notNull(),
+  status: text('status').$type<'ACTIVE' | 'DISABLED'>().notNull(),
+  /**
+   * Google's permanent id for the account, saved at first sign-in. Later
+   * sign-ins must match it, so the email alone is never enough.
+   */
+  googleSubject: text('google_subject').unique(),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Staff roles. One for now; more are added in admin/permissions.ts. */
+export type StaffRole = 'OWNER';
+
+/**
+ * Signed-in admin console sessions. The browser holds a random token in a
+ * cookie; only its SHA-256 hash is stored, so a leaked database can't be
+ * used to sign in.
+ */
+export const staffSessions = pgTable(
+  'staff_sessions',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    staffId: text('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  t => [index('staff_sessions_staff_idx').on(t.staffId)],
+);
+
+/**
+ * Everything done from the admin console, and every sign-in attempt:
+ * who, what, to which record, the value before and after. Rows are only
+ * ever added.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(),
+    /** Null for attempts by someone who isn't staff (e.g. denied sign-in). */
+    staffId: text('staff_id').references(() => staff.id),
+    action: text('action').notNull(),
+    targetType: text('target_type'),
+    targetId: text('target_id'),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    ip: text('ip'),
+    requestId: text('request_id'),
+    createdAt: createdAt(),
+  },
+  t => [
+    index('audit_log_created_idx').on(t.createdAt),
+    index('audit_log_target_idx').on(t.targetType, t.targetId),
+  ],
+);
 
 /** References to a provider point at providers.user_id. */
 const providerRef = (name: string) =>

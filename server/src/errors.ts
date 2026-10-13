@@ -26,6 +26,22 @@ export class ForbiddenError extends Error {
   }
 }
 
+/** The request itself is wrong in a way the schema can't express. */
+export class BadRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
+  }
+}
+
+/** A feature that needs configuration (e.g. a secret) that isn't set. */
+export class NotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotConfiguredError';
+  }
+}
+
 /**
  * Turns errors into HTTP answers with a stable `error` code the app can
  * act on. Domain errors keep their meaning across the network: a
@@ -40,7 +56,10 @@ export function errorHandler(
   const send = (status: number, code: string, message = error.message) =>
     reply.status(status).send({ error: code, message });
 
-  if ('validation' in error && error.validation) {
+  if (
+    ('validation' in error && error.validation) ||
+    error instanceof BadRequestError
+  ) {
     return send(400, 'invalid_request');
   }
   if (error instanceof UnauthenticatedError) {
@@ -57,6 +76,10 @@ export function errorHandler(
   }
   if (error instanceof PriceChangedError) {
     return send(409, 'price_changed');
+  }
+  if (error instanceof NotConfiguredError) {
+    request.log.error(error);
+    return send(503, 'not_configured');
   }
   request.log.error(error);
   return send(500, 'internal', 'Something went wrong');
