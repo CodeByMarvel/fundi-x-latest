@@ -15,10 +15,15 @@ if (existsSync('.env')) {
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT ?? 3000);
-// Data survives restarts in ./data; delete the folder to start over.
-const DATA_DIR = process.env.DATA_DIR ?? './data/pglite';
+// A PostgreSQL server: in development the one `npm run dev` starts
+// (db/devPostgres.ts), in production a hosted one.
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('DATABASE_URL is missing: set it in server/.env (see .env.example).');
+  process.exit(1);
+}
 
-const { db, close } = await createDatabase({ dataDir: DATA_DIR });
+const { db, close } = await createDatabase({ url: DATABASE_URL });
 if (!IS_PRODUCTION) {
   await seedDevData(db);
 }

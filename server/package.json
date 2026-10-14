@@ -5,11 +5,12 @@
   "description": "Fundi-X backend API",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx scripts/dev.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db": "tsx scripts/db.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.9",
@@ -17,11 +18,14 @@
     "@fastify/rate-limit": "^11.2.1",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.5",
-    "jose": "^6.2.12"
+    "jose": "^6.2.12",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "@types/pg": "8.23.1",
     "drizzle-kit": "^0.31.11",
+    "embedded-postgres": "17.10.0-beta.17",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
