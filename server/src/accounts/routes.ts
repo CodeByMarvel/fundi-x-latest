@@ -16,6 +16,9 @@ import { createAppSession, revokeAllAppSessions, revokeAppSession } from './sess
 export type AccountsConfig = {
   verifyGoogle: GoogleVerifier;
   verifyApple: AppleVerifier;
+  /** Given to the app's Google button (public by design). */
+  googleClientId: string | null;
+  appleEnabled: boolean;
 };
 
 const ROLES: Record<'customer' | 'provider', UserRole> = {
@@ -188,6 +191,15 @@ export function registerAccountRoutes(
       return signIn(request, 'apple', { ...identity, name: request.body.name }, request.body.role);
     },
   );
+
+  /**
+   * What the sign-in screen needs, so the app holds no settings of its own
+   * beyond the server's address.
+   */
+  app.get('/auth/config', async () => ({
+    googleClientId: config.googleClientId,
+    appleEnabled: config.appleEnabled,
+  }));
 
   app.post('/auth/sign-out', async request => {
     const [scheme, token] = request.headers.authorization?.split(' ') ?? [];

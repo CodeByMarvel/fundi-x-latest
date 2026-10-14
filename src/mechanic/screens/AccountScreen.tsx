@@ -17,11 +17,17 @@ import {
   SettingsList,
   SettingsRow,
 } from '../../shared/components/SettingsList';
-import { SwitchRoleButton } from '../../shared/components/SwitchRoleButton';
+import { AccountActions, useSignedInAccount } from '../../auth/AccountActions';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { OnlineToggle } from '../components/OnlineToggle';
 import { CURRENT_PROVIDER_ID, mechanicProfile } from '../data/mockMechanic';
+
+const VERIFICATION = {
+  PENDING: 'Waiting for Fundi-X to verify you',
+  VERIFIED: 'Verified by Fundi-X',
+  REJECTED: 'Not approved: contact provider support',
+} as const;
 
 const comingSoon = (what: string) => () =>
   Alert.alert(what, 'This will be available once accounts are live.');
@@ -31,7 +37,12 @@ export function AccountScreen() {
   const tabBarSpace = useFloatingTabBarSpace();
   const provider = useProvider(CURRENT_PROVIDER_ID);
   const reliability = useReliabilityEvents(CURRENT_PROVIDER_ID);
-  const fullName = `${mechanicProfile.firstName} ${mechanicProfile.lastName}`;
+  // The signed-in account's details; demo mode shows the sample mechanic.
+  const account = useSignedInAccount();
+  const fullName =
+    account?.provider?.businessName ??
+    account?.name ??
+    `${mechanicProfile.firstName} ${mechanicProfile.lastName}`;
 
   return (
     <ScrollView
@@ -53,7 +64,31 @@ export function AccountScreen() {
         <OnlineToggle providerId={CURRENT_PROVIDER_ID} />
       </View>
 
-      {provider && (
+      {account?.provider && (
+        <View style={styles.section}>
+          <SectionTitle>Profile</SectionTitle>
+          <SettingsList>
+            <SettingsRow
+              Icon={ShieldCheck}
+              label="Verification"
+              value={VERIFICATION[account.provider.verification]}
+            />
+            <SettingsRow
+              Icon={Wrench}
+              label="Specialty"
+              value={account.provider.specialty}
+            />
+            <SettingsRow
+              Icon={Smartphone}
+              label="M-Pesa for payouts"
+              value={account.phone ? formatPhone(account.phone) : 'Not set'}
+            />
+            <SettingsRow Icon={Mail} label="Email" value={account.email ?? 'Not set'} />
+          </SettingsList>
+        </View>
+      )}
+
+      {!account && provider && (
         <View style={styles.section}>
           <SectionTitle>Profile</SectionTitle>
           <SettingsList>
@@ -108,9 +143,7 @@ export function AccountScreen() {
         </SettingsList>
       </View>
 
-      <View style={styles.dev}>
-        <SwitchRoleButton />
-      </View>
+      <AccountActions />
     </ScrollView>
   );
 }
@@ -140,9 +173,5 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: 24,
-  },
-  dev: {
-    marginTop: 32,
-    alignItems: 'center',
   },
 });

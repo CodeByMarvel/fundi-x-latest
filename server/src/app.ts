@@ -25,6 +25,8 @@ const LOCAL_ADMIN: AdminConfig = {
 const LOCAL_ACCOUNTS: AccountsConfig = {
   verifyGoogle: googleVerifier(undefined),
   verifyApple: appleVerifier(undefined),
+  googleClientId: null,
+  appleEnabled: false,
 };
 
 /**

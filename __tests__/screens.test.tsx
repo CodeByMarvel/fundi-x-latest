@@ -7,6 +7,7 @@ import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RoleProvider } from '../src/app/RoleContext';
+import { AuthProvider } from '../src/auth/AuthContext';
 import { JobTrackingScreen } from '../src/customer/jobs/JobTrackingScreen';
 import { buildJobDetails } from '../src/customer/request/engine';
 import { EMPTY_DRAFT } from '../src/customer/request/types';
@@ -51,9 +52,11 @@ function render(element: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   act(() => {
     tree = ReactTestRenderer.create(
-      <RoleProvider>
-        <SafeAreaProvider initialMetrics={metrics}>{element}</SafeAreaProvider>
-      </RoleProvider>,
+      <AuthProvider>
+        <RoleProvider>
+          <SafeAreaProvider initialMetrics={metrics}>{element}</SafeAreaProvider>
+        </RoleProvider>
+      </AuthProvider>,
     );
   });
   const text = JSON.stringify(tree.toJSON());

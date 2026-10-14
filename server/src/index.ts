@@ -31,6 +31,8 @@ const app = buildApp({
     // The app's Google sign-in uses the same web client id as the portal.
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
     verifyApple: appleVerifier(process.env.APPLE_BUNDLE_ID),
+    googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+    appleEnabled: !!process.env.APPLE_BUNDLE_ID,
   },
   admin: {
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),

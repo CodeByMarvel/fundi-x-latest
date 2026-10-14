@@ -34,7 +34,12 @@ const build = (signInPerMinute = 1000) =>
   buildApp({
     db,
     allowDevHeader: false, // as in production
-    accounts: { verifyGoogle: fakeGoogle, verifyApple: fakeApple },
+    accounts: {
+      verifyGoogle: fakeGoogle,
+      verifyApple: fakeApple,
+      googleClientId: 'test-web-client',
+      appleEnabled: true,
+    },
     signInPerMinute,
   });
 
@@ -62,6 +67,11 @@ const call = (method: 'GET' | 'PUT' | 'DELETE' | 'POST', url: string, headers: o
   app.inject({ method, url, headers: headers as Record<string, string>, ...(payload && { payload }) });
 
 describe('signing in with Google', () => {
+  it('tells the app which Google client to use', async () => {
+    const res = await app.inject({ url: '/auth/config' });
+    expect(res.json()).toEqual({ googleClientId: 'test-web-client', appleEnabled: true });
+  });
+
   it('creates the account on first sign-in and asks for a phone number next', async () => {
     const { account, token } = await signedIn();
     expect(token).toBeTruthy();

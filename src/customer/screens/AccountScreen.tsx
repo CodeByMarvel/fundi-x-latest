@@ -7,7 +7,8 @@ import {
   SettingsList,
   SettingsRow,
 } from '../../shared/components/SettingsList';
-import { SwitchRoleButton } from '../../shared/components/SwitchRoleButton';
+import { AccountActions, useSignedInAccount } from '../../auth/AccountActions';
+import { formatPhone } from '../../domain/billing/types';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { customer } from '../data/mockHome';
@@ -19,7 +20,11 @@ const comingSoon = (what: string) => () =>
 export function AccountScreen() {
   const { top } = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
-  const fullName = `${customer.firstName} ${customer.lastName}`;
+  // The signed-in account's details; demo mode shows the sample customer.
+  const account = useSignedInAccount();
+  const fullName = account?.name ?? `${customer.firstName} ${customer.lastName}`;
+  const phone = account ? (account.phone ? formatPhone(account.phone) : 'Not set') : customer.mpesaPhone;
+  const email = account ? account.email ?? 'Not set' : customer.email;
 
   return (
     <ScrollView
@@ -57,10 +62,10 @@ export function AccountScreen() {
           <SettingsRow
             Icon={Smartphone}
             label="M-Pesa number"
-            value={customer.mpesaPhone}
+            value={phone}
             onPress={comingSoon('Change M-Pesa number')}
           />
-          <SettingsRow Icon={Mail} label="Email" value={customer.email} />
+          <SettingsRow Icon={Mail} label="Email" value={email} />
         </SettingsList>
       </View>
 
@@ -80,9 +85,7 @@ export function AccountScreen() {
         </SettingsList>
       </View>
 
-      <View style={styles.dev}>
-        <SwitchRoleButton />
-      </View>
+      <AccountActions />
     </ScrollView>
   );
 }
@@ -112,9 +115,5 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: 28,
-  },
-  dev: {
-    marginTop: 32,
-    alignItems: 'center',
   },
 });
