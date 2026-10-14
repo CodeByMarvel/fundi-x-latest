@@ -34,6 +34,21 @@ export class BadRequestError extends Error {
   }
 }
 
+/**
+ * The request is fine but clashes with a rule or the current state, e.g.
+ * a phone number already used by another account. `code` is what the app
+ * acts on (shown as the `error` field).
+ */
+export class ConflictError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 /** A feature that needs configuration (e.g. a secret) that isn't set. */
 export class NotConfiguredError extends Error {
   constructor(message: string) {
@@ -88,6 +103,9 @@ export function createErrorHandler(onUnexpected?: UnexpectedErrorHook) {
     }
     if (error instanceof PriceChangedError) {
       return send(409, 'price_changed');
+    }
+    if (error instanceof ConflictError) {
+      return send(409, error.code);
     }
     if (error instanceof NotConfiguredError) {
       request.log.error(error);

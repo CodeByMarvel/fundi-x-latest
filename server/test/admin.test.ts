@@ -40,6 +40,7 @@ beforeAll(async () => {
       secureCookie: true,
       devSignIn: false,
     },
+    signInPerMinute: 1000, // many sign-ins per minute in tests
   });
 });
 beforeEach(async () => {

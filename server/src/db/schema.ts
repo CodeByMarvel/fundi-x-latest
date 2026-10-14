@@ -54,16 +54,63 @@ export const users = pgTable(
   'users',
   {
     id: text('id').primaryKey(),
-    /** M-Pesa format, 2547XXXXXXXX. Login is phone + SMS code. */
-    phone: text('phone').notNull(),
+    /**
+     * M-Pesa format, 2547XXXXXXXX. Added after sign-in (M-Pesa and the
+     * mechanic need it); required before booking.
+     */
+    phone: text('phone'),
+    /**
+     * When the phone was proven to be theirs: set by the first successful
+     * M-Pesa payment from it (they typed their PIN). Cleared when the
+     * number changes.
+     */
+    phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
     name: text('name').notNull(),
+    /** From Google or Apple; Apple's may be a private relay address. */
+    email: text('email'),
+    /** Google's and Apple's permanent account ids ("sub"), never reused. */
+    googleSubject: text('google_subject'),
+    appleSubject: text('apple_subject'),
     role: text('role').$type<UserRole>().notNull(),
-    /** SUSPENDED accounts are refused on every request (an admin action). */
-    status: text('status').$type<'ACTIVE' | 'SUSPENDED'>().notNull(),
+    /**
+     * SUSPENDED: refused on every request (an admin action).
+     * DELETED: the person deleted their account; personal details are
+     * wiped, the row stays so past jobs and payments still add up.
+     */
+    status: text('status').$type<'ACTIVE' | 'SUSPENDED' | 'DELETED'>().notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  t => [uniqueIndex('users_phone_role_idx').on(t.phone, t.role)],
+  t => [
+    uniqueIndex('users_phone_role_idx').on(t.phone, t.role),
+    // One customer and one provider account per Google or Apple account.
+    uniqueIndex('users_google_role_idx').on(t.googleSubject, t.role),
+    uniqueIndex('users_apple_role_idx').on(t.appleSubject, t.role),
+  ],
+);
+
+/**
+ * Signed-in app sessions (customers and providers). The phone keeps a
+ * random token in its secure storage; only the SHA-256 hash is stored here.
+ * Checked on every request, so revoking one ends it at once.
+ */
+export const appSessions = pgTable(
+  'app_sessions',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    method: text('method').$type<'google' | 'apple'>().notNull(),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    createdAt: createdAt(),
+    /** Moves forward while the session is used (60 days of inactivity ends it). */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  t => [index('app_sessions_user_idx').on(t.userId)],
 );
 
 /**

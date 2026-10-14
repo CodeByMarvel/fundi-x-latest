@@ -59,8 +59,11 @@ const NOT_STAFF = 'This Google account is not allowed into the admin console';
 export function registerAdminRoutes(
   app: FastifyInstance,
   db: Database,
-  config: AdminConfig,
+  config: AdminConfig & { signInPerMinute: number },
 ) {
+  const signInLimit = {
+    rateLimit: { max: config.signInPerMinute, timeWindow: '1 minute' },
+  };
   app.register(
     async admin => {
       admin.addHook('onRequest', async request => {
@@ -126,7 +129,7 @@ export function registerAdminRoutes(
       }
 
       /** DEVELOPMENT ONLY: sign in as the owner, from this computer. */
-      admin.post('/auth/dev', async (request, reply) => {
+      admin.post('/auth/dev', { config: signInLimit }, async (request, reply) => {
         if (!config.devSignIn) {
           throw new NotFoundError('Route');
         }
@@ -151,6 +154,7 @@ export function registerAdminRoutes(
       admin.post<{ Body: { credential: string } }>(
         '/auth/google',
         {
+          config: signInLimit,
           schema: {
             body: {
               type: 'object',

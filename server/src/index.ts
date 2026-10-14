@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { ensureOwner } from './admin/bootstrap';
+import { appleVerifier } from './accounts/apple';
 import { googleVerifier } from './admin/google';
 import { buildApp } from './app';
 import { createDatabase } from './db/client';
@@ -24,6 +25,13 @@ if (!IS_PRODUCTION) {
 const app = buildApp({
   db,
   logger: true,
+  // The x-dev-user stand-in for a signed-in session: never in production.
+  allowDevHeader: !IS_PRODUCTION,
+  accounts: {
+    // The app's Google sign-in uses the same web client id as the portal.
+    verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
+    verifyApple: appleVerifier(process.env.APPLE_BUNDLE_ID),
+  },
   admin: {
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
     googleClientId: process.env.GOOGLE_CLIENT_ID || null,

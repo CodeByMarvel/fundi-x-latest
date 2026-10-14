@@ -1,5 +1,8 @@
 import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { appleVerifier } from './accounts/apple';
+import { registerAccountRoutes, type AccountsConfig } from './accounts/routes';
 import { googleVerifier } from './admin/google';
 import { registerAdminRoutes, type AdminConfig } from './admin/routes';
 import { registerAuth } from './auth';
@@ -18,6 +21,12 @@ const LOCAL_ADMIN: AdminConfig = {
   devSignIn: false,
 };
 
+/** Local development: Google and Apple sign-in off until configured. */
+const LOCAL_ACCOUNTS: AccountsConfig = {
+  verifyGoogle: googleVerifier(undefined),
+  verifyApple: appleVerifier(undefined),
+};
+
 /**
  * Builds the API without starting it, so tests can call it directly
  * (app.inject) against their own fresh database.
@@ -26,10 +35,18 @@ export function buildApp({
   db,
   logger = false,
   admin = LOCAL_ADMIN,
+  accounts = LOCAL_ACCOUNTS,
+  allowDevHeader = true,
+  signInPerMinute = 10,
 }: {
   db: Database;
   logger?: boolean;
   admin?: AdminConfig;
+  accounts?: AccountsConfig;
+  /** The x-dev-user stand-in for a session. index.ts turns it off in production. */
+  allowDevHeader?: boolean;
+  /** Sign-in attempts allowed per minute from one address (app and portal). */
+  signInPerMinute?: number;
 }) {
   const app = Fastify({
     logger,
@@ -62,9 +79,14 @@ export function buildApp({
     ),
   );
   app.register(cookie);
-  registerAuth(app, db);
+  // Only routes that ask for it are limited (sign-in), per address.
+  app.register(rateLimit, { global: false });
+  registerAuth(app, db, { allowDevHeader });
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
-  registerAdminRoutes(app, db, admin);
+  // Inside a plugin so it loads after the rate limiter, which only sees
+  // routes added once it is ready.
+  app.register(async scope => registerAccountRoutes(scope, db, { ...accounts, signInPerMinute }));
+  registerAdminRoutes(app, db, { ...admin, signInPerMinute });
   return app;
 }

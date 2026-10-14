@@ -52,7 +52,7 @@ export function booking(details: JobRequestDetails, callOutFee?: number) {
  */
 export async function resetTables(db: Database) {
   await db.execute(
-    sql`TRUNCATE incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
+    sql`TRUNCATE app_sessions, incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
   );
   const at = new Date();
   const account = { status: 'ACTIVE' as const, createdAt: at, updatedAt: at };

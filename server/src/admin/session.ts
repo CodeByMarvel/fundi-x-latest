@@ -1,10 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { Database, Tx } from '../db/client';
 import { auditLog, staff, staffSessions, type StaffRole } from '../db/schema';
 import { ForbiddenError, UnauthenticatedError } from '../errors';
 import { newId } from '../ids';
+import { hashToken as hash, newToken } from '../tokens';
 import { can, type Permission } from './permissions';
 
 export const SESSION_COOKIE = 'fx_admin';
@@ -18,9 +18,6 @@ export type StaffCaller = {
   role: StaffRole;
 };
 
-const hash = (token: string) =>
-  createHash('sha256').update(token).digest('base64url');
-
 /** Starts a session; returns the token for the cookie (never stored). */
 export async function createSession(
   tx: Tx,
@@ -28,7 +25,7 @@ export async function createSession(
   request: FastifyRequest,
   at: Date,
 ) {
-  const token = randomBytes(32).toString('base64url');
+  const token = newToken();
   await tx.insert(staffSessions).values({
     tokenHash: hash(token),
     staffId,

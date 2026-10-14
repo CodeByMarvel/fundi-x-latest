@@ -25,8 +25,9 @@ import {
   refunds,
   releases,
   reliabilityEvents,
+  users,
 } from '../db/schema';
-import { NotFoundError } from '../errors';
+import { ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
@@ -54,6 +55,14 @@ export async function createJob(
   caller: Caller,
   input: CreateJobInput,
 ): Promise<Job> {
+  // M-Pesa charges a phone number, and the mechanic needs one to call.
+  const [customer] = await db
+    .select({ phone: users.phone })
+    .from(users)
+    .where(eq(users.id, caller.id));
+  if (!customer?.phone) {
+    throw new ConflictError('phone_required', 'Add your M-Pesa number before booking');
+  }
   const { acceptedPrice, ...details } = input;
   const estimate = calculateEstimate(
     details,

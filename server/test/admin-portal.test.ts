@@ -29,6 +29,7 @@ beforeAll(async () => {
       secureCookie: false,
       devSignIn: true,
     },
+    signInPerMinute: 1000, // many sign-ins per minute in tests
   });
   // A route that always breaks, standing in for a real bug.
   app.get('/test/boom', async () => {
