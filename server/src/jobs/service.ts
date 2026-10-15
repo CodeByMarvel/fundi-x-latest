@@ -5,11 +5,17 @@ import {
   CALL_OUT_PAYMENT_WINDOW_MS,
   isProviderLate,
 } from '../../../src/domain/jobs/rules';
-import { applyTransition } from '../../../src/domain/jobs/transitions';
+import {
+  applyTransition,
+  isTerminalStatus,
+} from '../../../src/domain/jobs/transitions';
 import type {
   CreateJobInput,
   Job,
+  JobActor,
   JobEvent,
+  JobEventMetadata,
+  JobStatus,
 } from '../../../src/domain/jobs/types';
 import { calculateEstimate } from '../../../src/domain/pricing/engine';
 import { PriceChangedError } from '../../../src/domain/pricing/PricingService';
@@ -38,6 +44,37 @@ import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
  * apply the domain rule → save everything in ONE transaction → return.
  * The rules themselves come from src/domain, the same code the apps run.
  */
+
+/**
+ * The one way a job changes status on the server: check the rule, save
+ * the job and its event, and settle the money if the job just ended, all
+ * in the caller's transaction. `changes` are fields set alongside (an
+ * ETA, a cancellation…), applied after the rulebook cleared stale ones.
+ */
+export async function moveJob(
+  tx: Tx,
+  job: Job,
+  to: JobStatus,
+  actor: JobActor,
+  now: Date,
+  {
+    metadata,
+    changes,
+  }: { metadata?: JobEventMetadata; changes?: Partial<Job> } = {},
+): Promise<Job> {
+  const { job: moved, event } = applyTransition(job, to, actor, {
+    now: now.toISOString(),
+    eventId: newId('evt'),
+    metadata,
+  });
+  const next: Job = { ...moved, ...changes };
+  await saveJob(tx, next);
+  await tx.insert(jobEvents).values({ ...event, createdAt: now });
+  if (isTerminalStatus(to)) {
+    await settle(tx, next, now);
+  }
+  return next;
+}
 
 /** Customers see their own jobs; providers see jobs offered or assigned to them. */
 function canSee(caller: Caller, job: Job) {

@@ -1,6 +1,11 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import { JobTransitionError } from '../../src/domain/jobs/transitions';
 import { PriceChangedError } from '../../src/domain/pricing/PricingService';
+import {
+  AdditionalQuotePendingError,
+  QuoteValidationError,
+  StaleQuoteError,
+} from '../../src/domain/quotes/quotes';
 
 /** The thing asked for doesn't exist, or isn't this caller's to see. */
 export class NotFoundError extends Error {
@@ -103,6 +108,15 @@ export function createErrorHandler(onUnexpected?: UnexpectedErrorHook) {
     }
     if (error instanceof PriceChangedError) {
       return send(409, 'price_changed');
+    }
+    if (error instanceof QuoteValidationError) {
+      return send(400, 'invalid_quote');
+    }
+    if (error instanceof StaleQuoteError) {
+      return send(409, 'stale_quote');
+    }
+    if (error instanceof AdditionalQuotePendingError) {
+      return send(409, 'additional_quote_pending');
     }
     if (error instanceof ConflictError) {
       return send(409, error.code);

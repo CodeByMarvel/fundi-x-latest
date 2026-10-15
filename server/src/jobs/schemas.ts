@@ -99,3 +99,42 @@ export const jobIdParams = {
   required: ['id'],
   properties: { id: text(80) },
 } as const;
+
+const quoteItems = {
+  type: 'array',
+  minItems: 1,
+  maxItems: 30,
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['serviceCode', 'kind', 'description', 'quantity', 'unitPrice'],
+    properties: {
+      serviceCode: text(64),
+      kind: { enum: ['PART', 'LABOUR', 'CONSUMABLE', 'OTHER'] },
+      description: text(200),
+      quantity: { type: 'integer', minimum: 1, maximum: 100 },
+      // Cents; KSh 1,000,000 is far above any single line.
+      unitPrice: { type: 'integer', minimum: 1, maximum: 100_000_000 },
+    },
+  },
+} as const;
+
+const body = (required: string[], properties: Record<string, unknown>) =>
+  ({ type: 'object', additionalProperties: false, required, properties }) as const;
+
+export const sendQuoteSchema = body(['items'], {
+  items: quoteItems,
+  note: { type: 'string', maxLength: 500 },
+});
+export const additionalQuoteSchema = body(['items', 'reason'], {
+  items: quoteItems,
+  reason: text(500),
+});
+export const quoteAnswerSchema = body(['quoteId'], { quoteId: text(80) });
+export const noteSchema = body([], { note: { type: 'string', maxLength: 500 } });
+export const summarySchema = body([], { summary: { type: 'string', maxLength: 1000 } });
+export const disputeSchema = body(['reason'], { reason: text(1000) });
+export const ratingSchema = body(['stars'], {
+  stars: { type: 'integer', minimum: 1, maximum: 5 },
+  comment: { type: 'string', maxLength: 500 },
+});

@@ -133,13 +133,23 @@ type Candidate = {
   /** How many rings from the job's cell. */
   ring: number;
   recentEvents: number;
+  rating: number;
   metres: number;
 };
 
 /**
+ * A provider's average pulled toward 4.5 by five imaginary ratings, so a
+ * newcomer with one 5-star job doesn't outrank 4.8 over a hundred jobs,
+ * and has no unfair penalty for having none yet.
+ */
+export const RATING_PRIOR = { stars: 4.5, weight: 5 };
+export const rankingRating = (total: number, count: number) =>
+  (total + RATING_PRIOR.stars * RATING_PRIOR.weight) / (count + RATING_PRIOR.weight);
+
+/**
  * The provider to offer the job to, or null. Ranked by ring (nearest
- * first), then fewer recent reliability events, then straight-line
- * distance. Ratings join the ranking once customers' ratings are stored.
+ * first), then fewer recent reliability events, then rating, then
+ * straight-line distance.
  */
 async function bestCandidate(
   tx: Tx,
@@ -159,11 +169,15 @@ async function bestCandidate(
       id: r.id,
       ring: ringsApart(jobCell, r.h3Cell!),
       recentEvents: r.recentEvents,
+      rating: rankingRating(r.ratingTotal, r.ratingCount),
       metres: metresBetween(coords, { lat: r.lat!, lng: r.lng! }),
     }))
     .sort(
       (a, b) =>
-        a.ring - b.ring || a.recentEvents - b.recentEvents || a.metres - b.metres,
+        a.ring - b.ring ||
+        a.recentEvents - b.recentEvents ||
+        b.rating - a.rating ||
+        a.metres - b.metres,
     );
 
   for (const candidate of ranked) {
@@ -209,6 +223,8 @@ function eligibleProviders(
       h3Cell: providers.h3Cell,
       lat: providers.lat,
       lng: providers.lng,
+      ratingTotal: providers.ratingTotal,
+      ratingCount: providers.ratingCount,
       recentEvents: sql<number>`(
         select count(*) from ${reliabilityEvents}
         where ${reliabilityEvents.providerId} = ${providers.userId}

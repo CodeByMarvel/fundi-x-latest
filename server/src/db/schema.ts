@@ -144,6 +144,9 @@ export const providers = pgTable('providers', {
   /** The H3 cell (matching resolution) of lat/lng, what matching searches. */
   h3Cell: text('h3_cell'),
   locationAt: timestamp('location_at', { withTimezone: true }),
+  /** Sum and count of customers' stars, so the average is exact. */
+  ratingTotal: integer('rating_total').notNull().default(0),
+  ratingCount: integer('rating_count').notNull().default(0),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, t => [index('providers_h3_cell_idx').on(t.h3Cell)]);
@@ -452,7 +455,11 @@ export type TimerKind =
   /** Search again, one ring wider (matching/service.ts). */
   | 'MATCHING_ROUND'
   /** The provider didn't answer the offer in time. */
-  | 'OFFER_EXPIRY';
+  | 'OFFER_EXPIRY'
+  /** The agreed price must reach escrow within 30 minutes. */
+  | 'SERVICE_PAYMENT_DEADLINE'
+  /** The customer neither confirmed nor disputed within 48 hours. */
+  | 'AUTO_CONFIRM';
 
 /**
  * "Do this to that job at this time", kept in the database so a restart

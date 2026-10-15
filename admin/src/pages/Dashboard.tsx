@@ -42,6 +42,14 @@ function alertsFrom(data: DashboardData, online: boolean | null): Alert[] {
       link: engineering,
     });
   }
+  const late = data.jobs?.lateArrivals ?? 0;
+  if (late) {
+    alerts.push({
+      tone: 'warn',
+      text: `${late} mechanic${late > 1 ? 's are' : ' is'} more than 20 min late: call to check in`,
+      link: href({ page: 'jobs', status: 'EN_ROUTE' }),
+    });
+  }
   const disputed = data.jobs?.active.DISPUTED ?? 0;
   if (disputed) {
     alerts.push({

@@ -1,11 +1,13 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Coordinates } from '../../../src/domain/jobs/request';
 import { requireProvider } from '../auth';
 import type { Database } from '../db/client';
-import { providers } from '../db/schema';
+import { jobs, providers } from '../db/schema';
+import { estimateEtaMinutes } from '../jobs/actions';
+import { saveJob, toJob } from '../jobs/store';
 import { ConflictError } from '../errors';
-import { matchingCell } from '../matching/h3';
+import { matchingCell, metresBetween } from '../matching/h3';
 
 const coordsSchema = {
   type: 'object',
@@ -47,6 +49,38 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
       throw new ConflictError('provider_profile', 'Set up your mechanic profile first');
     }
     return provider;
+  }
+
+  /**
+   * While driving to a job, each position report updates the ETA the
+   * customer sees. Not an event (job-flow.md §14), and it never moves the
+   * promised arrival time the late rule uses.
+   */
+  async function refreshEta(providerId: string, here: Coordinates) {
+    await db.transaction(async tx => {
+      const [row] = await tx
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.providerId, providerId), eq(jobs.status, 'EN_ROUTE')))
+        .for('update');
+      const job = row && toJob(row);
+      if (!job?.location.coords) {
+        return;
+      }
+      const etaMinutes = estimateEtaMinutes(metresBetween(here, job.location.coords));
+      if (etaMinutes !== job.etaMinutes) {
+        await saveJob(tx, { ...job, etaMinutes, updatedAt: new Date().toISOString() });
+      }
+    });
+  }
+
+  async function hasJobUnderWay(providerId: string) {
+    const [row] = await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.providerId, providerId), inArray(jobs.status, ['ACCEPTED', 'EN_ROUTE'])))
+      .limit(1);
+    return !!row;
   }
 
   app.get('/provider/availability', async request => {
@@ -101,8 +135,9 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
   );
 
   /**
-   * Sent by the app every 30 seconds or so while online. Refused while
-   * offline: we only keep a mechanic's position while they're working.
+   * Sent by the app every 30 seconds or so while online or heading to a
+   * job. Refused otherwise: we only keep a mechanic's position while they
+   * are working.
    */
   app.put<{ Body: Coordinates }>(
     '/provider/location',
@@ -110,7 +145,9 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
     async request => {
       const caller = requireProvider(request);
       const provider = await profileOf(caller.id);
-      if (!provider.online) {
+      // "Online" means open to new offers; a job already under way still
+      // needs the position (live ETA) even if they switched that off.
+      if (!provider.online && !(await hasJobUnderWay(caller.id))) {
         throw new ConflictError('offline', 'Go online to share your location');
       }
       const at = new Date();
@@ -119,6 +156,7 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
         .set({ ...located(request.body, at), updatedAt: at })
         .where(eq(providers.userId, caller.id))
         .returning();
+      await refreshEta(caller.id, request.body);
       return availabilityView(saved);
     },
   );

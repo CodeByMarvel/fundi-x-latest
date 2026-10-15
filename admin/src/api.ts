@@ -279,6 +279,8 @@ export type Dashboard = {
   jobs?: {
     active: Partial<Record<JobStatus, number>>;
     today: { created: number; completed: number; cancelled: number };
+    /** Mechanics past their promised arrival time + 20 min, still driving. */
+    lateArrivals: number;
   };
   settings?: { callOutFee: number };
 };

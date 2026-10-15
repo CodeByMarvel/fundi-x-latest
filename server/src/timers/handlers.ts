@@ -1,11 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { STK_TIMEOUT_MS } from '../../../src/domain/jobs/rules';
+import { AUTO_CONFIRM_MS, STK_TIMEOUT_MS } from '../../../src/domain/jobs/rules';
 import { applyTransition } from '../../../src/domain/jobs/transitions';
 import type { Job } from '../../../src/domain/jobs/types';
 import type { Tx } from '../db/client';
 import { jobEvents, payments, type TimerKind } from '../db/schema';
 import { newId } from '../ids';
-import { settle } from '../jobs/service';
+import { moveJob, settle } from '../jobs/service';
 import { lockJob, saveJob } from '../jobs/store';
 import { expireOffer, matchRound } from '../matching/service';
 
@@ -65,6 +65,56 @@ const callOutPaymentDeadline: Handler = async (tx, jobId, now) => {
   return DONE;
 };
 
+/** True while the customer is in the middle of an M-Pesa payment for this job. */
+async function paymentInFlight(tx: Tx, jobId: string) {
+  const paying = await tx
+    .select({ id: payments.id })
+    .from(payments)
+    .where(and(eq(payments.jobId, jobId), inArray(payments.status, ['PENDING', 'PROCESSING'])))
+    .limit(1);
+  return paying.length > 0;
+}
+
+/**
+ * The agreed price didn't reach escrow within 30 minutes: the job ends
+ * (`service_unpaid`). Work never started, so the provider keeps only the
+ * call-out.
+ */
+const servicePaymentDeadline: Handler = async (tx, jobId, now) => {
+  const job = await lockJob(tx, jobId);
+  if (job.status !== 'SERVICE_PAYMENT_PENDING') {
+    return DONE;
+  }
+  if (await paymentInFlight(tx, jobId)) {
+    return { done: false, retryAt: new Date(now.getTime() + STK_TIMEOUT_MS) };
+  }
+  await moveJob(tx, job, 'CANCELLED', 'SYSTEM', now, {
+    metadata: { reason: 'service_unpaid' },
+    changes: { cancellation: { by: 'SYSTEM', reason: 'service_unpaid', fromStatus: job.status } },
+  });
+  return DONE;
+};
+
+/**
+ * 48 hours without a confirmation or dispute counts as confirmed. A job
+ * that went back to work (dispute → rework) and finished again has a newer
+ * timer of its own, so this one only acts if 48 h have passed since the
+ * job last changed.
+ */
+const autoConfirm: Handler = async (tx, jobId, now) => {
+  const job = await lockJob(tx, jobId);
+  if (
+    job.status === 'AWAITING_CONFIRMATION' &&
+    Date.parse(job.updatedAt) + AUTO_CONFIRM_MS <= now.getTime()
+  ) {
+    await moveJob(tx, job, 'COMPLETED', 'SYSTEM', now, {
+      metadata: { reason: 'auto_confirmed' },
+      changes: { completedAt: now.toISOString() },
+    });
+  }
+  return DONE;
+};
+
 /** The next matching round: look one ring further (matching/service.ts). */
 const matchingRound: Handler = async (tx, jobId, now) => {
   const job = await lockJob(tx, jobId);
@@ -95,4 +145,6 @@ export const TIMER_HANDLERS: Record<TimerKind, Handler> = {
   CALL_OUT_PAYMENT_DEADLINE: callOutPaymentDeadline,
   MATCHING_ROUND: matchingRound,
   OFFER_EXPIRY: offerExpiry,
+  SERVICE_PAYMENT_DEADLINE: servicePaymentDeadline,
+  AUTO_CONFIRM: autoConfirm,
 };

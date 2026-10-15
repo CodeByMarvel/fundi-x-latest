@@ -483,3 +483,42 @@ lower matching priority; severe → temporary suspension pending review.
 | Reliability | Record events from withdrawals, lateness, disputes |
 | Customer UI | Pay-to-start step; late-cancel with refund; cancel at arrival/diagnosis |
 | Provider UI | "Ready to start" (FIXED); "Waiting for payment — don't start yet" |
+
+---
+
+## 20. Server API for the job flow (2026-10-15)
+
+Every call is authenticated (`Authorization: Bearer <session>`); the server
+works out who is calling and refuses anything that isn't theirs with
+`404 not_found` (it never confirms someone else's job exists). A move the
+current status doesn't allow is `409 job_transition`.
+
+| Who | Call | Does |
+|---|---|---|
+| Customer | `POST /pricing/estimate` | Price for the review screen |
+| Customer | `POST /jobs` | Book (needs `location.coords`) |
+| Both | `GET /jobs`, `GET /jobs/:id`, `GET /jobs/:id/events`, `GET /jobs/:id/quotes` | Own jobs, newest first |
+| Customer | `POST /jobs/:id/cancel` | Cancel (refund rules §8) |
+| Customer | `POST /jobs/:id/approve-quote` `{quoteId}` | Main quote → `SERVICE_PAYMENT_PENDING` |
+| Customer | `POST /jobs/:id/reject-quote` `{quoteId}` | Main: job ends, call-out kept. Additional: not done |
+| Customer | `POST /jobs/:id/confirm` · `/dispute {reason}` · `/rate {stars, comment?}` | After the work |
+| Provider | `PUT /provider/availability` `{online, location?}` · `PUT /provider/location` `{lat, lng}` | Online switch, position every ~30 s |
+| Provider | `POST /jobs/:id/accept` · `/decline` | Answer an offer |
+| Provider | `POST /jobs/:id/withdraw {note?}` | Hand back; search restarts |
+| Provider | `POST /jobs/:id/start-trip` · `/arrived` | ETA fixed at start; live ETA from positions |
+| Provider | `POST /jobs/:id/start-inspection` · `/quote {items, note?}` · `/revise-quote` | QUOTED jobs |
+| Provider | `POST /jobs/:id/ready-to-start` | FIXED jobs: ask for the agreed price |
+| Provider | `POST /jobs/:id/additional-quote {items, reason}` · `/complete {summary?}` | During and after the work |
+| Provider | `POST /jobs/:id/no-show` | After 15 min at the location |
+
+Error codes the app acts on: `offer_expired`, `stale_quote`,
+`additional_quote_pending`, `pay_to_approve`, `wait_longer`, `cannot_rate`,
+`invalid_quote`, `not_verified`, `location_required`, `offline`.
+
+Timers (durable, re-check state before acting): `MATCHING_ROUND`,
+`OFFER_EXPIRY` (45 s), `CALL_OUT_PAYMENT_DEADLINE` (30 min),
+`SERVICE_PAYMENT_DEADLINE` (30 min), `AUTO_CONFIRM` (48 h).
+
+Not yet on the server: money arriving from M-Pesa (moves the job to
+`SEARCHING` / `IN_PROGRESS`, approves paid extra work), refunds and payouts
+actually sent (B2C), and support resolving disputes (admin portal).

@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { Payment } from '../../../src/domain/billing/types';
 import type { Job } from '../../../src/domain/jobs/types';
+import type { Quote } from '../../../src/domain/quotes/types';
 import type { Database, Tx } from '../db/client';
-import { jobs, payments } from '../db/schema';
+import { jobs, payments, quotes } from '../db/schema';
 import { NotFoundError } from '../errors';
 import { matchingCell, zoneCell } from '../matching/h3';
 
@@ -13,6 +14,7 @@ import { matchingCell, zoneCell } from '../matching/h3';
 
 type JobRow = typeof jobs.$inferSelect;
 type PaymentRow = typeof payments.$inferSelect;
+type QuoteRow = typeof quotes.$inferSelect;
 
 const iso = (d: Date) => d.toISOString();
 
@@ -132,4 +134,22 @@ export async function lockJob(tx: Tx, jobId: string) {
 
 export async function saveJob(tx: Tx, job: Job) {
   await tx.update(jobs).set(toRow(job)).where(eq(jobs.id, job.id));
+}
+
+export function toQuote(row: QuoteRow): Quote {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    kind: row.kind,
+    issuedBy: row.issuedBy,
+    ...(row.providerId && { providerId: row.providerId }),
+    version: row.version,
+    status: row.status,
+    items: row.items,
+    total: row.total,
+    ...(row.note && { note: row.note }),
+    ...(row.reason && { reason: row.reason }),
+    createdAt: iso(row.createdAt),
+    ...(row.respondedAt && { respondedAt: iso(row.respondedAt) }),
+  };
 }

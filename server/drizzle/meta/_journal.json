@@ -50,6 +50,13 @@
       "when": 1792065579733,
       "tag": "0006_h3_matching",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792070037419,
+      "tag": "0007_job_actions",
+      "breakpoints": true
     }
   ]
 }

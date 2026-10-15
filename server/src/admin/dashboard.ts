@@ -1,4 +1,5 @@
-import { gte, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, notInArray, sql } from 'drizzle-orm';
+import { LATE_GRACE_MS } from '../../../src/domain/jobs/rules';
 import type { FastifyInstance } from 'fastify';
 import { isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { Database } from '../db/client';
@@ -50,9 +51,23 @@ export function registerAdminDashboard(admin: FastifyInstance, db: Database) {
         })
         .from(jobs)
         .where(gte(jobs.updatedAt, today));
+      // Past the promised arrival + grace and still driving: the customer
+      // may cancel with a refund, and support should check in
+      // (job-flow.md §10, "not-arrived alert").
+      const lateBefore = new Date(Date.now() - LATE_GRACE_MS).toISOString();
+      const [late] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(jobs)
+        .where(
+          and(
+            eq(jobs.status, 'EN_ROUTE'),
+            sql`(${jobs.extra}->>'expectedArrivalAt')::timestamptz < ${lateBefore}`,
+          ),
+        );
       result.jobs = {
         active: Object.fromEntries(byStatus.map(r => [r.status, r.count])),
         today: counts,
+        lateArrivals: late.count,
       };
     }
     if (can(me.role, 'settings.edit')) {

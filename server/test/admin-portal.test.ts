@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { kes } from '../../src/domain/money';
 import { ensureOwner } from '../src/admin/bootstrap';
@@ -235,6 +235,19 @@ describe('dashboard', () => {
     expect(dash.jobs.today).toEqual({ created: 2, completed: 0, cancelled: 0 });
     expect(dash.system.incidentsOpen).toBe(0);
     expect(dash.settings.callOutFee).toBeGreaterThan(0);
+  });
+
+  it('flags mechanics more than 20 minutes past their promised arrival', async () => {
+    const onTime = await book();
+    const late = await book(SERVICE, OTIENO);
+    const enRoute = (id: string, minutesAgo: number) =>
+      db.execute(sql`
+        update jobs set status = 'EN_ROUTE',
+          extra = extra || jsonb_build_object('expectedArrivalAt', ${new Date(Date.now() - minutesAgo * 60_000).toISOString()}::text)
+        where id = ${id}`);
+    await enRoute(onTime.id, 10); // a little late, still within the grace
+    await enRoute(late.id, 25);
+    expect((await get('/admin/dashboard')).json().jobs.lateArrivals).toBe(1);
   });
 
   it('starts "today" at midnight Nairobi time', () => {
