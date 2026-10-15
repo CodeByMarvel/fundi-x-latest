@@ -20,10 +20,18 @@ export type Urgency = 'now' | 'today' | 'scheduled';
 
 export type LocationKind = 'current' | 'home' | 'work' | 'other';
 
+/** A point on the map, in degrees (WGS 84, what phones' GPS gives). */
+export type Coordinates = { lat: number; lng: number };
+
 export type RequestLocation = {
   kind: LocationKind;
   label: string;
   address: string;
+  /**
+   * Where the vehicle is. The backend turns it into an H3 cell to find
+   * nearby providers (docs/job-flow.md §4), and requires it for booking.
+   */
+  coords?: Coordinates;
 };
 
 export type ScheduledFor = {

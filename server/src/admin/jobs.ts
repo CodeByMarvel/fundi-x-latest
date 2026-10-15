@@ -8,6 +8,7 @@ import {
   charges,
   incidents,
   jobEvents,
+  jobMatching,
   jobs,
   payments,
   providers,
@@ -18,6 +19,7 @@ import {
   users,
 } from '../db/schema';
 import { NotFoundError } from '../errors';
+import { getSetting } from '../settings';
 import { findJob } from '../jobs/store';
 import { staffOf } from './session';
 
@@ -153,8 +155,22 @@ export function registerAdminJobs(admin: FastifyInstance, db: Database) {
         heldInEscrow: paid - refunded - released,
       };
 
+      const [area] = await db
+        .select({ cell: jobs.h3Cell, zone: jobs.locationZone })
+        .from(jobs)
+        .where(eq(jobs.id, job.id));
+      const [search] = await db.select().from(jobMatching).where(eq(jobMatching.jobId, job.id));
+
       return {
         job,
+        // How far matching had to look (docs/job-flow.md §4).
+        matching: {
+          cell: area?.cell ?? null,
+          zone: area?.zone ?? null,
+          ring: search?.ring ?? null,
+          maxRing: await getSetting(db, 'matching_max_ring'),
+          startedAt: search?.startedAt ?? null,
+        },
         customer: customer
           ? { id: customer.id, name: customer.name, phone: customer.phone, status: customer.status }
           : null,

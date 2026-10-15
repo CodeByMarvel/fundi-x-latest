@@ -128,6 +128,27 @@ Quote
 - Each job also stores a **coarse H3 cell** (indicative: resolution 6) as
   its `locationZone`, for pricing analysis without exposing addresses.
 
+### 4.1 Decided values (2026-10-15)
+
+| What | Value | Where |
+|---|---|---|
+| Matching resolution | **8** (hexagons ≈ 0.53 km a side; one ring ≈ 0.9 km) | Code (`server/src/matching/h3.ts`): every stored provider cell uses it, so changing it means re-indexing |
+| Zone resolution | **6** (≈ 3.7 km a side, about a district) | Code |
+| Max ring | **5** (≈ 4.5–5 km) | Setting `matching_max_ring` (1–10), admin portal |
+| Round interval | **10 s**; round *k* searches rings 0…*k*, so ring 5 is reached after 50 s | Setting `matching_round_seconds` (3–120) |
+| Offer response | **45 s** | Setting `offer_timeout_seconds` (15–300) |
+| Provider position | Only positions **under 5 minutes old** count; the app reports every ~30 s while online | Code (`PROVIDER_LOCATION_MAX_AGE_MS`) |
+| Ranking | Ring → fewer reliability events in the last **30 days** → straight-line distance. Rating joins once ratings are stored | Code |
+
+- Booking **requires coordinates**; the server works out both cells from them.
+- Going **online** needs a verified profile and a current position. Going
+  **offline** deletes the stored position (we only track mechanics while
+  they work). Account deletion deletes it too.
+- An expired or declined offer resumes the search at the **same ring**; a
+  provider is never offered the same job twice.
+- Two searches can't offer one provider two jobs: the provider's row is
+  locked and their availability re-checked before the offer is made.
+
 ---
 
 ## 5. States
@@ -427,7 +448,6 @@ lower matching priority; severe → temporary suspension pending review.
 
 ## 17. Still open
 
-- Exact H3 resolution, max ring, and matching round timing.
 - Reliability thresholds and their effect on matching.
 - Support SLA for disputes.
 - What happens when a FIXED job's vehicle doesn't match the booking (e.g.

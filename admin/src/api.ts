@@ -251,6 +251,15 @@ export type JobDetail = {
   }[];
   timers: Timer[];
   incidents: Incident[];
+  /** Where the job is on the H3 grid and how far the search went. */
+  matching: {
+    cell: string | null;
+    zone: string | null;
+    /** null until the job starts searching. */
+    ring: number | null;
+    maxRing: number;
+    startedAt: string | null;
+  };
 };
 
 export type SystemNumbers = {

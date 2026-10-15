@@ -102,3 +102,11 @@ export function requireCustomer(request: FastifyRequest) {
   }
   return caller;
 }
+
+export function requireProvider(request: FastifyRequest) {
+  const caller = callerOf(request);
+  if (caller.role !== 'PROVIDER') {
+    throw new ForbiddenError('Only mechanics and garages can do this');
+  }
+  return caller;
+}

@@ -27,7 +27,7 @@ import {
   reliabilityEvents,
   users,
 } from '../db/schema';
-import { ConflictError, NotFoundError } from '../errors';
+import { BadRequestError, ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
@@ -62,6 +62,10 @@ export async function createJob(
     .where(eq(users.id, caller.id));
   if (!customer?.phone) {
     throw new ConflictError('phone_required', 'Add your M-Pesa number before booking');
+  }
+  // Matching searches outward from this point (docs/job-flow.md §4).
+  if (!input.location.coords) {
+    throw new BadRequestError('The vehicle location (coordinates) is required to book');
   }
   const { acceptedPrice, ...details } = input;
   const estimate = calculateEstimate(

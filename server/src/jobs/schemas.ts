@@ -35,6 +35,15 @@ export const requestDetailsProperties = {
       kind: { enum: ['current', 'home', 'work', 'other'] },
       label: text(60),
       address: text(300),
+      coords: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['lat', 'lng'],
+        properties: {
+          lat: { type: 'number', minimum: -90, maximum: 90 },
+          lng: { type: 'number', minimum: -180, maximum: 180 },
+        },
+      },
     },
   },
   urgency: { enum: ['now', 'today', 'scheduled'] },

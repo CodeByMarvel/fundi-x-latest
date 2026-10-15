@@ -17,7 +17,12 @@ export const REPAIR: JobRequestDetails = {
   answers: { 'brakes.symptoms': ['noise'] },
   description: 'Grinding when I stop',
   drivability: 'caution',
-  location: { kind: 'home', label: 'Home', address: 'Kileleshwa' },
+  location: {
+    kind: 'home',
+    label: 'Home',
+    address: 'Kileleshwa',
+    coords: { lat: -1.2795, lng: 36.7845 },
+  },
   urgency: 'now',
 };
 export const SERVICE: JobRequestDetails = {
@@ -52,7 +57,7 @@ export function booking(details: JobRequestDetails, callOutFee?: number) {
  */
 export async function resetTables(db: Database) {
   await db.execute(
-    sql`TRUNCATE app_sessions, incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
+    sql`TRUNCATE app_sessions, incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_matching, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
   );
   const at = new Date();
   const account = { status: 'ACTIVE' as const, createdAt: at, updatedAt: at };

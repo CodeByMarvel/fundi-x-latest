@@ -1,6 +1,7 @@
 import {
   bigint,
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -133,9 +134,19 @@ export const providers = pgTable('providers', {
     .notNull(),
   /** The provider's "available" switch. */
   online: boolean('online').notNull().default(false),
+  /**
+   * Last reported position, sent by the app while online. Matching only
+   * uses positions newer than PROVIDER_LOCATION_MAX_AGE_MS: a phone that
+   * stopped reporting may be off, or far away by now.
+   */
+  lat: doublePrecision('lat'),
+  lng: doublePrecision('lng'),
+  /** The H3 cell (matching resolution) of lat/lng, what matching searches. */
+  h3Cell: text('h3_cell'),
+  locationAt: timestamp('location_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, t => [index('providers_h3_cell_idx').on(t.h3Cell)]);
 
 /**
  * Values the business changes without a code release, such as the call-out
@@ -258,6 +269,14 @@ export const jobs = pgTable(
     /** What the customer described when booking. Never changes. */
     request: jsonb('request').$type<JobRequestDetails>().notNull(),
     extra: jsonb('extra').$type<JobExtra>().notNull(),
+    /**
+     * Both worked out from the request's coordinates (matching/h3.ts), so
+     * they can never disagree with it. h3_cell is where matching searches
+     * from; location_zone is a coarse cell (several km across) for pricing
+     * and demand analysis without exposing addresses.
+     */
+    h3Cell: text('h3_cell'),
+    locationZone: text('location_zone'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -266,8 +285,23 @@ export const jobs = pgTable(
     index('jobs_customer_idx').on(t.customerId),
     index('jobs_provider_idx').on(t.providerId),
     index('jobs_status_idx').on(t.status),
+    index('jobs_location_zone_idx').on(t.locationZone),
   ],
 );
+
+/**
+ * How far matching has got for a job: the ring it searches out to now.
+ * Created when the job starts SEARCHING; kept afterwards so the admin
+ * portal can show how far the search had to go.
+ */
+export const jobMatching = pgTable('job_matching', {
+  jobId: text('job_id')
+    .primaryKey()
+    .references(() => jobs.id),
+  ring: integer('ring').notNull(),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  updatedAt: updatedAt(),
+});
 
 /** The audit trail: one row per status change. Rows are only ever added. */
 export const jobEvents = pgTable(
@@ -413,7 +447,12 @@ export const reliabilityEvents = pgTable(
 );
 
 /** What a timer does when it fires. Each kind has a handler in timers/. */
-export type TimerKind = 'CALL_OUT_PAYMENT_DEADLINE';
+export type TimerKind =
+  | 'CALL_OUT_PAYMENT_DEADLINE'
+  /** Search again, one ring wider (matching/service.ts). */
+  | 'MATCHING_ROUND'
+  /** The provider didn't answer the offer in time. */
+  | 'OFFER_EXPIRY';
 
 /**
  * "Do this to that job at this time", kept in the database so a restart

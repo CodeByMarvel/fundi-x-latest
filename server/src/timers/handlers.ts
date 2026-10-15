@@ -7,6 +7,7 @@ import { jobEvents, payments, type TimerKind } from '../db/schema';
 import { newId } from '../ids';
 import { settle } from '../jobs/service';
 import { lockJob, saveJob } from '../jobs/store';
+import { expireOffer, matchRound } from '../matching/service';
 
 /**
  * What a handler decided: the timer is finished, or should fire again at
@@ -64,6 +65,34 @@ const callOutPaymentDeadline: Handler = async (tx, jobId, now) => {
   return DONE;
 };
 
+/** The next matching round: look one ring further (matching/service.ts). */
+const matchingRound: Handler = async (tx, jobId, now) => {
+  const job = await lockJob(tx, jobId);
+  if (job.status === 'SEARCHING') {
+    await matchRound(tx, job, now);
+  }
+  return DONE;
+};
+
+/**
+ * The provider didn't answer in time. If the job has moved on (accepted,
+ * declined, cancelled), or this timer belongs to an earlier offer and a
+ * newer one is still open, there's nothing to do.
+ */
+const offerExpiry: Handler = async (tx, jobId, now) => {
+  const job = await lockJob(tx, jobId);
+  if (
+    job.status === 'OFFERED' &&
+    job.offerExpiresAt &&
+    Date.parse(job.offerExpiresAt) <= now.getTime()
+  ) {
+    await expireOffer(tx, job, now);
+  }
+  return DONE;
+};
+
 export const TIMER_HANDLERS: Record<TimerKind, Handler> = {
   CALL_OUT_PAYMENT_DEADLINE: callOutPaymentDeadline,
+  MATCHING_ROUND: matchingRound,
+  OFFER_EXPIRY: offerExpiry,
 };

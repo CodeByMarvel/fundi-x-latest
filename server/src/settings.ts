@@ -12,6 +12,16 @@ import { settings } from './db/schema';
 export const SETTING_DEFAULTS = {
   /** Charged up front on every booking (docs/job-flow.md §3.1). */
   call_out_fee: CALL_OUT_FEE as Cents,
+  /**
+   * How far matching may look, in H3 rings around the job's cell
+   * (docs/job-flow.md §4). Ring 5 ≈ 4.5–5 km. Keeps the flat call-out
+   * fair: nobody further than this is ever sent.
+   */
+  matching_max_ring: 5,
+  /** Seconds between matching rounds; each round looks one ring further. */
+  matching_round_seconds: 10,
+  /** How long a provider has to accept or decline an offer. */
+  offer_timeout_seconds: 45,
 };
 
 export type Settings = typeof SETTING_DEFAULTS;
@@ -19,6 +29,9 @@ export type SettingKey = keyof Settings;
 
 export const isSettingKey = (key: string): key is SettingKey =>
   Object.hasOwn(SETTING_DEFAULTS, key);
+
+const wholeBetween = (value: unknown, min: number, max: number) =>
+  Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
 
 /**
  * What counts as a sensible value for each setting, checked before an
@@ -32,6 +45,16 @@ const RULES: { [K in SettingKey]: (value: unknown) => string | null } = {
     (value as number) % 100 === 0
       ? null
       : 'Call-out fee must be whole shillings between KSh 100 and KSh 10,000 (in cents)',
+  matching_max_ring: value =>
+    wholeBetween(value, 1, 10) ? null : 'Max ring must be a whole number from 1 to 10',
+  matching_round_seconds: value =>
+    wholeBetween(value, 3, 120)
+      ? null
+      : 'Matching round must be a whole number of seconds from 3 to 120',
+  offer_timeout_seconds: value =>
+    wholeBetween(value, 15, 300)
+      ? null
+      : 'Offer time must be a whole number of seconds from 15 to 300',
 };
 
 export const settingProblem = (key: SettingKey, value: unknown) =>

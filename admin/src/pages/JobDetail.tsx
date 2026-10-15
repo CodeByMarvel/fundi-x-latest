@@ -164,6 +164,18 @@ export function JobDetail({ id }: { id: string }) {
               {job.location.label}
               {job.location.address && ` · ${job.location.address}`}
             </dd>
+            <dt>Search</dt>
+            <dd>
+              {data.matching.ring === null
+                ? 'Not started'
+                : `Reached ring ${data.matching.ring} of ${data.matching.maxRing} (about ${(data.matching.ring * 0.9).toFixed(1)} km)`}
+              {data.matching.zone && (
+                <span className="muted small">
+                  {' '}
+                  · zone <span className="mono">{data.matching.zone}</span>
+                </span>
+              )}
+            </dd>
             <dt>Urgency</dt>
             <dd>{humanize(job.urgency)}</dd>
             <dt>Drivable</dt>

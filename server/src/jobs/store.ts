@@ -4,6 +4,7 @@ import type { Job } from '../../../src/domain/jobs/types';
 import type { Database, Tx } from '../db/client';
 import { jobs, payments } from '../db/schema';
 import { NotFoundError } from '../errors';
+import { matchingCell, zoneCell } from '../matching/h3';
 
 /**
  * Converts between database rows and the domain's Job, so the rest of the
@@ -76,6 +77,8 @@ export function toRow(job: Job): JobRow {
       ...(scheduledFor && { scheduledFor }),
     },
     extra,
+    h3Cell: location.coords ? matchingCell(location.coords) : null,
+    locationZone: location.coords ? zoneCell(location.coords) : null,
     createdAt: new Date(createdAt),
     updatedAt: new Date(updatedAt),
     completedAt: completedAt ? new Date(completedAt) : null,

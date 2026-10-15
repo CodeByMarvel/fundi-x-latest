@@ -22,6 +22,7 @@ const PRESETS: (RequestLocation & { Icon: LucideIcon; title: string })[] = [
     title: 'Use my current location',
     label: 'Current location',
     address: 'Near Yaya Centre, Kilimani',
+    coords: { lat: -1.2925, lng: 36.7875 },
     Icon: Navigation,
   },
   {
@@ -29,6 +30,7 @@ const PRESETS: (RequestLocation & { Icon: LucideIcon; title: string })[] = [
     title: 'Home',
     label: 'Home',
     address: 'Kileleshwa, Nairobi',
+    coords: { lat: -1.2795, lng: 36.7845 },
     Icon: House,
   },
   {
@@ -36,6 +38,7 @@ const PRESETS: (RequestLocation & { Icon: LucideIcon; title: string })[] = [
     title: 'Work',
     label: 'Work',
     address: 'Westlands, Nairobi',
+    coords: { lat: -1.2655, lng: 36.8025 },
     Icon: Briefcase,
   },
 ];

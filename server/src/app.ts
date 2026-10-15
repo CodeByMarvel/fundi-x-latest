@@ -11,6 +11,7 @@ import { createErrorHandler } from './errors';
 import { newId } from './ids';
 import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
+import { registerProviderRoutes } from './providers/routes';
 
 /** Local development: no Google sign-in until GOOGLE_CLIENT_ID is set. */
 const LOCAL_ADMIN: AdminConfig = {
@@ -86,6 +87,7 @@ export function buildApp({
   registerAuth(app, db, { allowDevHeader });
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
+  registerProviderRoutes(app, db);
   // Inside a plugin so it loads after the rate limiter, which only sees
   // routes added once it is ready.
   app.register(async scope => registerAccountRoutes(scope, db, { ...accounts, signInPerMinute }));

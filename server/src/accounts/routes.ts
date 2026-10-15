@@ -338,7 +338,10 @@ export function registerAccountRoutes(
           updatedAt: new Date(),
         })
         .where(eq(users.id, user.id));
-      await tx.update(providers).set({ online: false }).where(eq(providers.userId, user.id));
+      await tx
+        .update(providers)
+        .set({ online: false, lat: null, lng: null, h3Cell: null, locationAt: null })
+        .where(eq(providers.userId, user.id));
       await revokeAllAppSessions(tx, user.id);
     });
     return { ok: true };

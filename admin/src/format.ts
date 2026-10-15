@@ -14,19 +14,48 @@ export const when = (iso: string) => dateTime.format(new Date(iso));
 /** What each setting is, for people. Keys match server/src/settings.ts. */
 export const SETTINGS: Record<
   string,
-  { label: string; help: string; kind: 'money' }
+  | { label: string; help: string; kind: 'money' }
+  | { label: string; help: string; kind: 'number'; unit: string; min: number; max: number }
 > = {
   call_out_fee: {
     label: 'Call-out fee',
     help: 'Charged up front on every booking: transport and inspection. Changes apply to new quotes straight away; customers holding an old quote are shown the new price before they book.',
     kind: 'money',
   },
+  matching_max_ring: {
+    label: 'Matching distance',
+    help: 'How far to look for a mechanic, in H3 rings around the customer (each ring is about 0.9 km; 5 ≈ 4.5–5 km). Nobody further away is ever sent, which keeps the flat call-out fee fair. Lower it if mechanics arrive late; raise it where mechanics are scarce.',
+    kind: 'number',
+    unit: 'rings',
+    min: 1,
+    max: 10,
+  },
+  matching_round_seconds: {
+    label: 'Search widening',
+    help: 'Seconds between matching rounds. Each round looks one ring further, so nearer mechanics get the first chance.',
+    kind: 'number',
+    unit: 'seconds',
+    min: 3,
+    max: 120,
+  },
+  offer_timeout_seconds: {
+    label: 'Offer time',
+    help: 'How long a mechanic has to accept or decline a job before it goes to the next one. Applies to new offers.',
+    kind: 'number',
+    unit: 'seconds',
+    min: 15,
+    max: 300,
+  },
 };
 
 /** A setting value as people read it. */
 export function settingValue(key: string | null, value: unknown) {
-  if (key && SETTINGS[key]?.kind === 'money' && typeof value === 'number') {
+  const meta = key ? SETTINGS[key] : undefined;
+  if (meta?.kind === 'money' && typeof value === 'number') {
     return ksh(value);
+  }
+  if (meta?.kind === 'number' && typeof value === 'number') {
+    return `${value} ${meta.unit}`;
   }
   return value === null || value === undefined ? '—' : JSON.stringify(value);
 }
