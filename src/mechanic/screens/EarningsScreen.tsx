@@ -12,7 +12,7 @@ import { SectionTitle } from '../../shared/components/SectionTitle';
 import { formatDateTime } from '../../shared/format';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
-import { CURRENT_PROVIDER_ID } from '../data/mockMechanic';
+import { useCurrentProviderId } from '../data/currentMechanic';
 import { isToday, sumCommission, sumNet } from '../earnings';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
@@ -20,7 +20,7 @@ import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 export function EarningsScreen() {
   const { top } = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
-  const releases = useProviderReleases(CURRENT_PROVIDER_ID);
+  const releases = useProviderReleases(useCurrentProviderId());
 
   const today = sumNet(releases.filter(r => isToday(r.createdAt)));
 

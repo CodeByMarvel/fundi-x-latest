@@ -64,6 +64,9 @@ import { calculateEstimate } from '../../domain/pricing/engine';
 import { mockProviders } from './mockProviders';
 import { startProviderBots } from './providerBots';
 
+/** The simulation's one customer, as the mechanic sees them. */
+const mockCustomerContact = { name: 'Lenny Mwangi', phone: '254712345678' };
+
 /** Until login exists, every job belongs to this customer. */
 const MOCK_CUSTOMER_ID = 'customer-1';
 
@@ -991,6 +994,13 @@ export function createMockBackend({
 
     getJob: jobId => call(() => jobs.get(jobId), 300),
     getJobEvents: jobId => call(() => events.get(jobId) ?? [], 300),
+    getCustomerContact: jobId =>
+      call(() => {
+        const job = jobs.get(jobId);
+        return job?.providerId && !isTerminalStatus(job.status)
+          ? mockCustomerContact
+          : undefined;
+      }, 300),
     getJobSnapshot: jobId => jobs.get(jobId),
     getJobsSnapshot: () => jobList,
     getQuoteSnapshot: quoteId => quotes.get(quoteId),
@@ -1178,6 +1188,8 @@ export function createMockBackend({
         notify();
         return provider;
       }, 300),
+    // The simulation has no map: positions are accepted and ignored.
+    reportLocation: async () => {},
     getProviderSnapshot: providerId => providers.get(providerId),
     getProvidersSnapshot: () => providerList,
     getReliabilityEventsSnapshot: () => reliabilityEvents,

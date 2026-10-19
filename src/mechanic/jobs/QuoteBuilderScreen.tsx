@@ -28,7 +28,7 @@ import { ScreenHeader } from '../../shared/components/ScreenHeader';
 import { TextField } from '../../shared/components/TextField';
 import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
 import { colors } from '../../shared/theme/colors';
-import { CURRENT_PROVIDER_ID } from '../data/mockMechanic';
+import { useCurrentProviderId } from '../data/currentMechanic';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
 type Props = NativeStackScreenProps<MechanicStackParamList, 'QuoteBuilder'>;
@@ -97,6 +97,7 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string>();
   const { pending, run } = useAsyncAction<'send'>();
+  const me = useCurrentProviderId();
 
   if (!job) {
     return null;
@@ -126,14 +127,14 @@ export function QuoteBuilderScreen({ navigation, route }: Props) {
       if (additional) {
         await jobRepository.raiseAdditionalQuote(
           job.id,
-          CURRENT_PROVIDER_ID,
+          me,
           inputs,
           reason,
         );
       } else {
         await jobRepository.sendQuote(
           job.id,
-          CURRENT_PROVIDER_ID,
+          me,
           inputs,
           note,
         );

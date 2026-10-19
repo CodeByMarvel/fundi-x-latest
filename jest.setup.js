@@ -19,3 +19,13 @@ jest.mock('react-native-keychain', () => ({
     return true;
   }),
 }));
+
+/** GPS: always at the same spot in Nairobi (Kilimani). */
+jest.mock('@react-native-community/geolocation', () => ({
+  requestAuthorization: jest.fn(success => success()),
+  getCurrentPosition: jest.fn(success =>
+    success({ coords: { latitude: -1.2921, longitude: 36.7856 } }),
+  ),
+  watchPosition: jest.fn(() => 0),
+  clearWatch: jest.fn(),
+}));

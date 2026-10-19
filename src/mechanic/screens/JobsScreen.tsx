@@ -19,7 +19,7 @@ import { StatusPill } from '../../shared/components/StatusPill';
 import { formatDate } from '../../shared/format';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
-import { CURRENT_PROVIDER_ID } from '../data/mockMechanic';
+import { useCurrentProviderId } from '../data/currentMechanic';
 import { providerJobView } from '../jobs/providerJobPresentation';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
@@ -29,8 +29,9 @@ export function JobsScreen() {
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
     useNavigation<NativeStackNavigationProp<MechanicStackParamList>>();
-  const offer = useOfferForProvider(CURRENT_PROVIDER_ID);
-  const jobs = useProviderJobs(CURRENT_PROVIDER_ID);
+  const me = useCurrentProviderId();
+  const offer = useOfferForProvider(me);
+  const jobs = useProviderJobs(me);
 
   const [active, past] = useMemo(
     () => [

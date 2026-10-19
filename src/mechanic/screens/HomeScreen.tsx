@@ -21,17 +21,18 @@ import { CurrentJobCard } from '../components/home/CurrentJobCard';
 import { JobOfferCard } from '../components/home/JobOfferCard';
 import { StatTile } from '../components/home/StatTile';
 import { OnlineToggle } from '../components/OnlineToggle';
-import { CURRENT_PROVIDER_ID, mechanicProfile } from '../data/mockMechanic';
+import { useCurrentProviderId, useMechanicProfile } from '../data/currentMechanic';
 import { isToday, sumNet } from '../earnings';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 
-const me = CURRENT_PROVIDER_ID;
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
     useNavigation<NativeStackNavigationProp<MechanicStackParamList>>();
+  const me = useCurrentProviderId();
+  const mechanicProfile = useMechanicProfile();
   const provider = useProvider(me);
   const offer = useOfferForProvider(me);
   const currentJob = useProviderCurrentJob(me);

@@ -11,6 +11,7 @@ import { createErrorHandler } from './errors';
 import { newId } from './ids';
 import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
+import { registerPaymentRoutes } from './payments/routes';
 import { registerProviderRoutes } from './providers/routes';
 
 /** Local development: no Google sign-in until GOOGLE_CLIENT_ID is set. */
@@ -41,6 +42,7 @@ export function buildApp({
   accounts = LOCAL_ACCOUNTS,
   allowDevHeader = true,
   signInPerMinute = 10,
+  simulatePayments = true,
 }: {
   db: Database;
   logger?: boolean;
@@ -50,6 +52,8 @@ export function buildApp({
   allowDevHeader?: boolean;
   /** Sign-in attempts allowed per minute from one address (app and portal). */
   signInPerMinute?: number;
+  /** The dev stand-in for the customer's phone during M-Pesa payments. Never in production. */
+  simulatePayments?: boolean;
 }) {
   const app = Fastify({
     logger,
@@ -88,6 +92,7 @@ export function buildApp({
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
   registerProviderRoutes(app, db);
+  registerPaymentRoutes(app, db, { simulatePayments });
   // Inside a plugin so it loads after the rate limiter, which only sees
   // routes added once it is ready.
   app.register(async scope => registerAccountRoutes(scope, db, { ...accounts, signInPerMinute }));

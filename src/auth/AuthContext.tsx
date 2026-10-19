@@ -4,9 +4,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
 } from 'react';
+import { selectMockBackend, selectServerBackend } from '../data/backend';
 import { Account, AccountRole, authApi, ServerError } from './api';
 import { googleCredential } from './google';
 import { clearToken, loadToken, saveToken } from './tokenStore';
@@ -69,6 +71,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const token = state.status === 'signedIn' ? state.token : null;
+  const accountRole = state.status === 'signedIn' ? state.account.role : null;
+
+  // Signed in: the app's data comes from the server, as this account.
+  // Otherwise the simulation (demo mode). Layout effect: switched before
+  // any screen's own effects start loading data.
+  useLayoutEffect(() => {
+    if (token && accountRole) {
+      selectServerBackend(token, accountRole);
+    } else {
+      selectMockBackend();
+    }
+  }, [token, accountRole]);
 
   const signInWithGoogle = useCallback(async (role: AccountRole) => {
     const { googleClientId } = await authApi.config();

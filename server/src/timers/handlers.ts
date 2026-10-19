@@ -8,6 +8,7 @@ import { newId } from '../ids';
 import { moveJob, settle } from '../jobs/service';
 import { lockJob, saveJob } from '../jobs/store';
 import { expireOffer, matchRound } from '../matching/service';
+import { expireStalePayments } from '../payments/service';
 
 /**
  * What a handler decided: the timer is finished, or should fire again at
@@ -141,10 +142,17 @@ const offerExpiry: Handler = async (tx, jobId, now) => {
   return DONE;
 };
 
+/** A PIN prompt M-Pesa has given up on: the customer can try again. */
+const paymentTimeout: Handler = async (tx, jobId, now) => {
+  await expireStalePayments(tx, jobId, now);
+  return DONE;
+};
+
 export const TIMER_HANDLERS: Record<TimerKind, Handler> = {
   CALL_OUT_PAYMENT_DEADLINE: callOutPaymentDeadline,
   MATCHING_ROUND: matchingRound,
   OFFER_EXPIRY: offerExpiry,
   SERVICE_PAYMENT_DEADLINE: servicePaymentDeadline,
   AUTO_CONFIRM: autoConfirm,
+  PAYMENT_TIMEOUT: paymentTimeout,
 };

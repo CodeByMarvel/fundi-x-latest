@@ -21,7 +21,7 @@ import { AccountActions, useSignedInAccount } from '../../auth/AccountActions';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
 import { OnlineToggle } from '../components/OnlineToggle';
-import { CURRENT_PROVIDER_ID, mechanicProfile } from '../data/mockMechanic';
+import { useCurrentProviderId, useMechanicProfile } from '../data/currentMechanic';
 
 const VERIFICATION = {
   PENDING: 'Waiting for Fundi-X to verify you',
@@ -35,8 +35,10 @@ const comingSoon = (what: string) => () =>
 export function AccountScreen() {
   const { top } = useSafeAreaInsets();
   const tabBarSpace = useFloatingTabBarSpace();
-  const provider = useProvider(CURRENT_PROVIDER_ID);
-  const reliability = useReliabilityEvents(CURRENT_PROVIDER_ID);
+  const me = useCurrentProviderId();
+  const mechanicProfile = useMechanicProfile();
+  const provider = useProvider(me);
+  const reliability = useReliabilityEvents(me);
   // The signed-in account's details; demo mode shows the sample mechanic.
   const account = useSignedInAccount();
   const fullName =
@@ -61,7 +63,7 @@ export function AccountScreen() {
       </View>
 
       <View style={styles.section}>
-        <OnlineToggle providerId={CURRENT_PROVIDER_ID} />
+        <OnlineToggle providerId={me} />
       </View>
 
       {account?.provider && (

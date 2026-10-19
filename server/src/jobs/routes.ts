@@ -80,6 +80,13 @@ export function registerJobRoutes(app: FastifyInstance, db: Database) {
     async request => act.listQuotes(db, callerOf(request), request.params.id),
   );
 
+  /** The customer's name and number, for the mechanic on an active job. */
+  app.get<JobParams>(
+    '/jobs/:id/contact',
+    { schema: { params: jobIdParams } },
+    async request => act.jobContact(db, callerOf(request), request.params.id),
+  );
+
   // ---- Actions: POST /jobs/:id/<action>. Who may do what is checked in
   // actions.ts; the body schemas only shape the input.
   type Body<B> = JobParams & { Body: B };

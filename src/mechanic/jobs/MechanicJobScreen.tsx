@@ -16,6 +16,7 @@ import { jobRepository } from '../../data/backend';
 import {
   useAdditionalQuotes,
   useJob,
+  useCustomerContact,
   useJobLedger,
   useQuote,
 } from '../../data/useJob';
@@ -37,7 +38,7 @@ import { PillTone, StatusPill } from '../../shared/components/StatusPill';
 import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
 import { useNow } from '../../shared/hooks/useNow';
 import { colors } from '../../shared/theme/colors';
-import { CURRENT_PROVIDER_ID, mockCustomerContact } from '../data/mockMechanic';
+import { useCurrentProviderId } from '../data/currentMechanic';
 import type { MechanicStackParamList } from '../navigation/MechanicNavigator';
 import {
   drivabilityView,
@@ -62,8 +63,6 @@ type Action =
 /** A form that replaces the action buttons while it's open. */
 type OpenForm = 'complete' | 'withdraw' | null;
 
-const me = CURRENT_PROVIDER_ID;
-
 /**
  * Everything a provider does on one job. Like the customer's tracking
  * screen, it only shows state; every button calls the backend, and the
@@ -74,6 +73,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
   const job = useJob(route.params.jobId);
   const additional = useAdditionalQuotes(route.params.jobId);
   const ledger = useJobLedger(route.params.jobId);
+  const me = useCurrentProviderId();
   const { pending, run } = useAsyncAction<Action>();
   const [form, setForm] = useState<OpenForm>(null);
   const now = useNow();
@@ -139,7 +139,7 @@ export function MechanicJobScreen({ navigation, route }: Props) {
           />
         )}
 
-        {isMine && <CustomerCard />}
+        {isMine && <CustomerCard jobId={job.id} />}
 
         <ProblemCard job={job} />
         <BaseQuoteCard job={job} />
@@ -351,17 +351,21 @@ function formatWait(ms: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-function CustomerCard() {
+function CustomerCard({ jobId }: { jobId: string }) {
+  const contact = useCustomerContact(jobId);
+  if (!contact) {
+    return null;
+  }
   return (
     <Card title="Customer">
       <View style={styles.row}>
-        <Avatar name={mockCustomerContact.name} size={44} />
+        <Avatar name={contact.name} size={44} />
         <Text style={[textStyles.primary, styles.grow]}>
-          {mockCustomerContact.name}
+          {contact.name}
         </Text>
         <Pressable
           style={styles.call}
-          onPress={() => Linking.openURL(`tel:+${mockCustomerContact.phone}`)}
+          onPress={() => Linking.openURL(`tel:+${contact.phone}`)}
           accessibilityLabel="Call customer"
         >
           <Phone color={colors.primary} size={20} />

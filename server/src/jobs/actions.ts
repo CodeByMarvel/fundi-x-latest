@@ -4,6 +4,7 @@ import {
   NO_SHOW_WAIT_MS,
   SERVICE_PAYMENT_WINDOW_MS,
 } from '../../../src/domain/jobs/rules';
+import { isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { Job } from '../../../src/domain/jobs/types';
 import {
   AdditionalQuotePendingError,
@@ -16,7 +17,7 @@ import {
 import type { Quote, QuoteItemInput } from '../../../src/domain/quotes/types';
 import type { Caller } from '../auth';
 import type { Database, Tx } from '../db/client';
-import { charges, jobs, providers, quotes, reliabilityEvents } from '../db/schema';
+import { charges, jobs, providers, quotes, reliabilityEvents, users } from '../db/schema';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { metresBetween } from '../matching/h3';
@@ -106,6 +107,22 @@ export async function listQuotes(db: Database, caller: Caller, jobId: string) {
     .where(eq(quotes.jobId, jobId))
     .orderBy(quotes.createdAt);
   return rows.map(toQuote);
+}
+
+/**
+ * The customer's name and number for the mechanic on the job, so they can
+ * call. Only while the job is under way: afterwards the number stays private.
+ */
+export async function jobContact(db: Database, caller: Caller, jobId: string) {
+  const job = await getJob(db, caller, jobId);
+  if (caller.role !== 'PROVIDER' || job.providerId !== caller.id || isTerminalStatus(job.status)) {
+    throw new NotFoundError('Contact');
+  }
+  const [customer] = await db
+    .select({ name: users.name, phone: users.phone })
+    .from(users)
+    .where(eq(users.id, job.customerId));
+  return { name: customer.name, phone: customer.phone ?? '' };
 }
 
 // ------------------------------------------------------------- provider

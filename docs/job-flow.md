@@ -510,15 +510,34 @@ current status doesn't allow is `409 job_transition`.
 | Provider | `POST /jobs/:id/ready-to-start` | FIXED jobs: ask for the agreed price |
 | Provider | `POST /jobs/:id/additional-quote {items, reason}` · `/complete {summary?}` | During and after the work |
 | Provider | `POST /jobs/:id/no-show` | After 15 min at the location |
+| Customer | `POST /jobs/:id/pay` `{phone, quoteId?}` | PIN prompt for what the job awaits (call-out, agreed price, or extra work by `quoteId`); the server sets the amount |
+| Both | `GET /jobs/:id/money` | Charges, payments, refunds, payouts. Providers get only their payout |
+| Provider | `GET /jobs/:id/contact` | Customer's name and number, only while the job is under way |
+| Provider | `GET /provider/me` · `GET /provider/releases` | Own profile, rating, reliability record; payouts |
+| Customer | `GET /providers/:id` | The mechanic on one of their jobs: name, rating, distance (never the exact position) |
+| Dev only | `POST /dev/payments/:id/respond` `{pay\|cancel\|insufficient_funds}` | Plays the customer's phone until Daraja; off in production (`SIMULATE_MPESA=false` turns it off locally) |
 
-Error codes the app acts on: `offer_expired`, `stale_quote`,
+Error codes the app acts on: `payment_refused`, `offer_expired`, `stale_quote`,
 `additional_quote_pending`, `pay_to_approve`, `wait_longer`, `cannot_rate`,
 `invalid_quote`, `not_verified`, `location_required`, `offline`.
 
 Timers (durable, re-check state before acting): `MATCHING_ROUND`,
 `OFFER_EXPIRY` (45 s), `CALL_OUT_PAYMENT_DEADLINE` (30 min),
-`SERVICE_PAYMENT_DEADLINE` (30 min), `AUTO_CONFIRM` (48 h).
+`SERVICE_PAYMENT_DEADLINE` (30 min), `AUTO_CONFIRM` (48 h), `PAYMENT_TIMEOUT`
+(60 s: an unanswered PIN prompt fails, so the customer can try again).
 
-Not yet on the server: money arriving from M-Pesa (moves the job to
-`SEARCHING` / `IN_PROGRESS`, approves paid extra work), refunds and payouts
-actually sent (B2C), and support resolving disputes (admin portal).
+Money arriving is one function for every source: `paymentSucceeded` /
+`paymentFailed` (server/src/payments/service.ts). It moves the job on
+(→ `SEARCHING`, → `IN_PROGRESS`, or approves paid extra work), refunds
+money that arrives after the job moved on, and does nothing the second
+time the same confirmation arrives. Today the dev simulator calls it;
+Daraja's callback will call the same function.
+
+The app (src/data/backend.ts) talks to the server when signed in and to
+the in-memory simulation in demo mode. The server client polls every 3 s
+and refreshes straight after each action; mechanics report their position
+every 30 s while online or on the way to a job (app open only, for now).
+
+Not yet on the server: the real M-Pesa connection (Daraja STK push and its
+callback), refunds and payouts actually sent (B2C), support resolving
+disputes, and verifying new mechanics (both admin portal).

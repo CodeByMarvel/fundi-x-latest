@@ -1,5 +1,6 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { balanceDue, totalPaid, totalRefunded } from '../domain/billing/ledger';
+import { Contact } from '../domain/jobs/JobRepository';
 import { isTerminalStatus } from '../domain/jobs/transitions';
 import { Job } from '../domain/jobs/types';
 import { billingService, jobRepository, providerRepository } from './backend';
@@ -177,4 +178,25 @@ export function useReliabilityEvents(providerId: string) {
     () => [...events].reverse().filter(e => e.providerId === providerId),
     [events, providerId],
   );
+}
+
+/**
+ * The customer's name and number for the provider on this job. Asked for
+ * again when the job's status changes: it stops being available once the
+ * job ends.
+ */
+export function useCustomerContact(jobId: string) {
+  const status = useJob(jobId)?.status;
+  const [contact, setContact] = useState<Contact>();
+  useEffect(() => {
+    let live = true;
+    jobRepository.getCustomerContact(jobId).then(
+      c => live && setContact(c),
+      () => {}, // offline: try again on the next status change
+    );
+    return () => {
+      live = false;
+    };
+  }, [jobId, status]);
+  return contact;
 }

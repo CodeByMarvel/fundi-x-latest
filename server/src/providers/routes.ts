@@ -1,13 +1,15 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Coordinates } from '../../../src/domain/jobs/request';
-import { requireProvider } from '../auth';
+import type { Provider } from '../../../src/domain/providers/types';
+import { requireCustomer, requireProvider } from '../auth';
 import type { Database } from '../db/client';
-import { jobs, providers } from '../db/schema';
+import { jobs, providers, releases, reliabilityEvents, users } from '../db/schema';
 import { estimateEtaMinutes } from '../jobs/actions';
 import { saveJob, toJob } from '../jobs/store';
-import { ConflictError } from '../errors';
+import { ConflictError, NotFoundError } from '../errors';
 import { matchingCell, metresBetween } from '../matching/h3';
+import { toRelease } from '../payments/service';
 
 const coordsSchema = {
   type: 'object',
@@ -27,6 +29,28 @@ const availabilityView = (p: ProviderRow) => ({
   verification: p.verification,
   locationAt: p.locationAt?.toISOString() ?? null,
 });
+
+/**
+ * A provider as the apps show them (name, rating, how far away). The
+ * exact position is never sent: only the distance to the job.
+ */
+function providerView(
+  p: ProviderRow,
+  user: { name: string; phone: string | null },
+  distanceKm = 0,
+): Provider {
+  return {
+    id: p.userId,
+    name: p.businessName ?? user.name,
+    type: p.type,
+    specialty: p.specialty,
+    rating: p.ratingCount ? Math.round((p.ratingTotal / p.ratingCount) * 10) / 10 : 0,
+    ratingCount: p.ratingCount,
+    distanceKm: Math.round(distanceKm * 10) / 10,
+    phone: user.phone ?? '',
+    online: p.online,
+  };
+}
 
 const located = (c: Coordinates, at: Date) => ({
   lat: c.lat,
@@ -82,6 +106,85 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
       .limit(1);
     return !!row;
   }
+
+  async function withUser(id: string) {
+    const [row] = await db
+      .select({ provider: providers, name: users.name, phone: users.phone })
+      .from(providers)
+      .innerJoin(users, eq(users.id, providers.userId))
+      .where(eq(providers.userId, id));
+    return row;
+  }
+
+  /** The mechanic's own profile and reliability record. */
+  app.get('/provider/me', async request => {
+    const caller = requireProvider(request);
+    const row = await withUser(caller.id);
+    if (!row) {
+      throw new ConflictError('provider_profile', 'Set up your mechanic profile first');
+    }
+    const events = await db
+      .select()
+      .from(reliabilityEvents)
+      .where(eq(reliabilityEvents.providerId, caller.id))
+      .orderBy(asc(reliabilityEvents.createdAt));
+    return {
+      provider: providerView(row.provider, row),
+      reliability: events.map(e => ({
+        id: e.id,
+        providerId: e.providerId,
+        jobId: e.jobId,
+        type: e.type,
+        at: e.createdAt.toISOString(),
+      })),
+    };
+  });
+
+  /** Every payout to this mechanic, oldest first. */
+  app.get('/provider/releases', async request => {
+    const caller = requireProvider(request);
+    const rows = await db
+      .select()
+      .from(releases)
+      .where(eq(releases.providerId, caller.id))
+      .orderBy(asc(releases.createdAt));
+    return rows.map(toRelease);
+  });
+
+  /**
+   * The mechanic on one of the customer's jobs: who's coming, their rating,
+   * how far away they are. Only for a customer that mechanic has worked
+   * for; anyone else gets "not found".
+   */
+  app.get<{ Params: { id: string } }>(
+    '/providers/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async request => {
+      const caller = requireCustomer(request);
+      const [job] = await db
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.customerId, caller.id), eq(jobs.providerId, request.params.id)))
+        .orderBy(desc(jobs.createdAt))
+        .limit(1);
+      const row = job && (await withUser(request.params.id));
+      if (!row) {
+        throw new NotFoundError('Provider');
+      }
+      const { lat, lng } = row.provider;
+      const coords = toJob(job).location.coords;
+      const km = lat !== null && lng !== null && coords ? metresBetween({ lat, lng }, coords) / 1000 : 0;
+      return providerView(row.provider, row, km);
+    },
+  );
 
   app.get('/provider/availability', async request => {
     const caller = requireProvider(request);

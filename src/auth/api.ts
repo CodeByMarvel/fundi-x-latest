@@ -55,7 +55,10 @@ export async function request<T>(
   } catch {
     throw new ServerError(0, 'unreachable', "Can't reach Fundi-X. Check your internet connection.");
   }
-  const data = await res.json().catch(() => null);
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    message?: string;
+  } | null;
   if (!res.ok) {
     throw new ServerError(
       res.status,

@@ -9,7 +9,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": { "@env": ["./test/envStub.ts"] }
   },
   "include": ["src", "test", "scripts", "drizzle.config.ts", "../src/domain"]
 }

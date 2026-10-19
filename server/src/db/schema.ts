@@ -459,7 +459,9 @@ export type TimerKind =
   /** The agreed price must reach escrow within 30 minutes. */
   | 'SERVICE_PAYMENT_DEADLINE'
   /** The customer neither confirmed nor disputed within 48 hours. */
-  | 'AUTO_CONFIRM';
+  | 'AUTO_CONFIRM'
+  /** An M-Pesa PIN prompt nobody answered: mark it failed. */
+  | 'PAYMENT_TIMEOUT';
 
 /**
  * "Do this to that job at this time", kept in the database so a restart

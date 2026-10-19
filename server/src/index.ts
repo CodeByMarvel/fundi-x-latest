@@ -32,6 +32,9 @@ const app = buildApp({
   logger: true,
   // The x-dev-user stand-in for a signed-in session: never in production.
   allowDevHeader: !IS_PRODUCTION,
+  // Until M-Pesa (Daraja) is connected, the app's "simulated phone" answers
+  // PIN prompts. Never in production, whatever .env says.
+  simulatePayments: !IS_PRODUCTION && process.env.SIMULATE_MPESA !== 'false',
   accounts: {
     // The app's Google sign-in uses the same web client id as the portal.
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),

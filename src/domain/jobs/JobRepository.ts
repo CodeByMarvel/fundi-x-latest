@@ -1,6 +1,9 @@
 import { Quote, QuoteItemInput } from '../quotes/types';
 import { CreateJobInput, Job, JobEvent } from './types';
 
+/** Someone to call about a job. `phone` is in 2547XXXXXXXX form. */
+export type Contact = { name: string; phone: string };
+
 /**
  * Everything the app can ask of "the backend" about jobs. Screens depend on
  * this interface only, so a mock and a real API client are interchangeable.
@@ -89,6 +92,11 @@ export interface JobRepository {
   // ---- Reads ----
   /** Fetches the latest copy of a job. */
   getJob(jobId: string): Promise<Job | undefined>;
+  /**
+   * The customer's name and number, for the provider on a job that's under
+   * way (so they can call). Undefined once the job has ended.
+   */
+  getCustomerContact(jobId: string): Promise<Contact | undefined>;
   /** The job's audit trail, oldest first. */
   getJobEvents(jobId: string): Promise<JobEvent[]>;
   /**

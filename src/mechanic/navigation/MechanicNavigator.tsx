@@ -1,6 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MechanicJobScreen } from '../jobs/MechanicJobScreen';
 import { QuoteBuilderScreen } from '../jobs/QuoteBuilderScreen';
+import { useLocationReporting } from '../location/useLocationReporting';
 import { MechanicTabs } from './MechanicTabs';
 
 export type MechanicStackParamList = {
@@ -14,6 +15,7 @@ const Stack = createNativeStackNavigator<MechanicStackParamList>();
 
 /** The mechanic side: the tab bar, plus job screens that open on top. */
 export function MechanicNavigator() {
+  useLocationReporting();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Tabs" component={MechanicTabs} />

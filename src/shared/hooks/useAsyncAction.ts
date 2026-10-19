@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import { ServerError } from '../../auth/api';
 import { JobTransitionError } from '../../domain/jobs/transitions';
 import { PaymentError } from '../../domain/billing/types';
 import { PriceChangedError } from '../../domain/pricing/PricingService';
@@ -8,6 +9,7 @@ import {
   QuoteValidationError,
   StaleQuoteError,
 } from '../../domain/quotes/quotes';
+import { LocationError } from '../location/currentPosition';
 
 /**
  * Runs one backend action at a time from a screen.
@@ -51,7 +53,11 @@ function describeError(error: unknown): [string, string] {
       'Something changed while you were looking. The screen now shows the latest status.',
     ];
   }
-  if (error instanceof QuoteValidationError || error instanceof PaymentError) {
+  if (
+    error instanceof QuoteValidationError ||
+    error instanceof PaymentError ||
+    error instanceof LocationError
+  ) {
     return ['Please check', error.message];
   }
   if (error instanceof AdditionalQuotePendingError) {
@@ -71,6 +77,15 @@ function describeError(error: unknown): [string, string] {
       'The quote has changed',
       'Your fundi updated the quote. Please review the new one.',
     ];
+  }
+  if (error instanceof ServerError) {
+    // The server's refusals (offer expired, not verified…) explain themselves.
+    if (error.status === 0) {
+      return ['No connection', error.message];
+    }
+    if (error.status < 500) {
+      return ['Please check', error.message];
+    }
   }
   return ['Something went wrong', 'Please try again.'];
 }

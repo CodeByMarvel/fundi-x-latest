@@ -82,19 +82,21 @@ export function HomeScreen() {
         </View>
       </View>
 
-      <View style={styles.section}>
-        <SectionTitle>Nearby / Recommended</SectionTitle>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.bleed}
-          contentContainerStyle={styles.providerList}
-        >
-          {providers.map(provider => (
-            <ProviderCard key={provider.id} provider={provider} />
-          ))}
-        </ScrollView>
-      </View>
+      {providers.length > 0 && (
+        <View style={styles.section}>
+          <SectionTitle>Nearby / Recommended</SectionTitle>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.bleed}
+            contentContainerStyle={styles.providerList}
+          >
+            {providers.map(provider => (
+              <ProviderCard key={provider.id} provider={provider} />
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {recentJob && (
         <View style={styles.section}>

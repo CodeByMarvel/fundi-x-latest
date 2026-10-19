@@ -1,15 +1,19 @@
 import { StyleSheet, Switch, Text, View } from 'react-native';
+import { useAuth } from '../../auth/AuthContext';
 import { providerRepository } from '../../data/backend';
 import { useProvider } from '../../data/useJob';
 import { useAsyncAction } from '../../shared/hooks/useAsyncAction';
+import { currentPosition } from '../../shared/location/currentPosition';
 import { colors } from '../../shared/theme/colors';
 
 /**
- * Online providers get offered jobs; offline ones don't. Turning Brian
- * offline also lets the simulated fundis pick up customer requests.
+ * Online providers get offered jobs; offline ones don't. Going online
+ * sends the current position, so matching can find them at once. (In demo
+ * mode, turning Brian offline lets the simulated fundis take requests.)
  */
 export function OnlineToggle({ providerId }: { providerId: string }) {
   const provider = useProvider(providerId);
+  const signedIn = useAuth().state.status === 'signedIn';
   const { pending, run } = useAsyncAction<'toggle'>();
   const online = provider?.online ?? false;
 
@@ -30,7 +34,11 @@ export function OnlineToggle({ providerId }: { providerId: string }) {
         value={online}
         disabled={pending !== null}
         onValueChange={value => {
-          run('toggle', () => providerRepository.setOnline(providerId, value));
+          run('toggle', async () => {
+            const location =
+              value && signedIn ? await currentPosition() : undefined;
+            await providerRepository.setOnline(providerId, value, location);
+          });
         }}
         trackColor={{ true: colors.success, false: colors.inactive }}
         thumbColor={colors.surface}
