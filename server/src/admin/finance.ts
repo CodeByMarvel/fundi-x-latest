@@ -1,10 +1,13 @@
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client';
-import { jobs, payments, providers, refunds, releases, users } from '../db/schema';
+import { jobs, payments, providers, refunds, releases, transfers, users } from '../db/schema';
+import { NotFoundError } from '../errors';
+import { markTransferSent, retryTransfer } from '../money/transfers';
 import { bookTotals, checkBooks } from '../money/check';
 import { startOfNairobiDay } from './dashboard';
-import { staffOf } from './session';
+import { reasonFrom, reasonSchema } from './reason';
+import { audit, staffOf } from './session';
 import { heldInEscrowSql } from './support';
 
 const DAY_MS = 86_400_000;
@@ -179,6 +182,100 @@ export function registerAdminFinance(admin: FastifyInstance, db: Database) {
     const [check, totals] = await Promise.all([checkBooks(db), bookTotals(db)]);
     return { check, totals };
   });
+
+  /** Money going out through M-Pesa B2C: payouts and refunds. Problems first. */
+  admin.get<{ Querystring: { status?: string } }>(
+    '/finance/transfers',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { status: { enum: ['QUEUED', 'SENDING', 'SENT', 'SUCCESS', 'FAILED'] } },
+        },
+      },
+    },
+    async request => {
+      await staffOf(db, request, 'money.view');
+      const { status } = request.query;
+      return db
+        .select({
+          ...getTableColumns(transfers),
+          recipientName: users.name,
+        })
+        .from(transfers)
+        .leftJoin(users, eq(users.id, transfers.recipientId))
+        .where(status ? eq(transfers.status, status as 'FAILED') : undefined)
+        .orderBy(sql`case ${transfers.status} when 'FAILED' then 0 when 'SENDING' then 1 when 'QUEUED' then 2 else 3 end`, desc(transfers.createdAt))
+        .limit(200);
+    },
+  );
+
+  const transferParams = { type: 'object', properties: { id: { type: 'string', maxLength: 100 } } } as const;
+
+  /**
+   * Sends a failed transfer again, once the cause is fixed (e.g. the B2C
+   * account was topped up). Same transfer id, so M-Pesa can spot a repeat.
+   */
+  admin.post<{ Params: { id: string }; Body: { reason: string } }>(
+    '/transfers/:id/retry',
+    {
+      schema: {
+        params: transferParams,
+        body: { type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: reasonSchema } },
+      },
+    },
+    async request => {
+      const me = await staffOf(db, request, 'money.refund');
+      const reason = reasonFrom(request.body.reason);
+      const t = await retryTransfer(db, request.params.id);
+      if (!t) {
+        throw new NotFoundError('Failed transfer');
+      }
+      await audit(db, request, {
+        staffId: me.id,
+        action: 'transfer.retry',
+        targetType: 'transfer',
+        targetId: t.id,
+        after: { status: 'QUEUED', amount: t.amount, phone: t.phone },
+        reason,
+      });
+      return t;
+    },
+  );
+
+  /** Someone checked M-Pesa and the money did arrive: record it with its receipt. */
+  admin.post<{ Params: { id: string }; Body: { reason: string; receipt: string } }>(
+    '/transfers/:id/mark-sent',
+    {
+      schema: {
+        params: transferParams,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['reason', 'receipt'],
+          properties: { reason: reasonSchema, receipt: { type: 'string', pattern: '^[A-Z0-9]{10}$' } },
+        },
+      },
+    },
+    async request => {
+      const me = await staffOf(db, request, 'money.refund');
+      const reason = reasonFrom(request.body.reason);
+      const t = await markTransferSent(db, request.params.id, request.body.receipt);
+      if (!t) {
+        throw new NotFoundError('Failed transfer');
+      }
+      await audit(db, request, {
+        staffId: me.id,
+        action: 'transfer.mark_sent',
+        targetType: 'transfer',
+        targetId: t.id,
+        after: { status: 'SUCCESS', receipt: request.body.receipt },
+        reason,
+      });
+      return { id: t.id, status: 'SUCCESS' };
+    },
+  );
 
   /** Every job with money still held, oldest first: the longest-held needs a look. */
   admin.get('/finance/escrow', async request => {

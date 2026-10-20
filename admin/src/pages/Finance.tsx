@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { useCallback, useEffect, useState } from 'react';
+import { useEvery } from '../useEvery';
+import { api, type Permission } from '../api';
+import { TRANSFER_STATUS, TransferRow } from '../components/TransferRow';
 import { JobLink } from '../components/JobLink';
 import { StatusBadge } from '../components/StatusBadge';
 import { ago, humanize, ksh, when } from '../format';
@@ -12,11 +14,14 @@ import type {
   ProviderEarnings,
   RefundRow,
   ReleaseRow,
+  Transfer,
+  TransferStatus,
 } from '../types';
 
-type Tab = 'payments' | 'refunds' | 'payouts' | 'escrow' | 'mechanics';
+type Tab = 'transfers' | 'payments' | 'refunds' | 'payouts' | 'escrow' | 'mechanics';
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'transfers', label: 'M-Pesa out' },
   { id: 'payments', label: 'Payments in' },
   { id: 'refunds', label: 'Refunds' },
   { id: 'payouts', label: 'Payouts' },
@@ -35,11 +40,11 @@ const PURPOSE: Record<string, string> = {
  * payment, refund and payout records. Sending refunds and payouts through
  * M-Pesa arrives with Daraja; until then they are recorded, not sent.
  */
-export function Finance() {
+export function Finance({ can }: { can: (p: Permission) => boolean }) {
   const [days, setDays] = useState(30);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('payments');
+  const [tab, setTab] = useState<Tab>('transfers');
 
   useEffect(() => {
     const to = new Date();
@@ -65,9 +70,9 @@ export function Finance() {
           ))}
         </div>
       </div>
-      <p className="notice">
-        M-Pesa (Daraja) isn't connected yet: refunds and payouts below are recorded by the server
-        but not yet sent. Amounts are what the system will send once it is.
+      <p className="muted">
+        Payouts and refunds go out through M-Pesa B2C automatically. “M-Pesa out” shows each one
+        until Safaricom confirms it arrived; anything that failed waits for you there.
       </p>
       {error && <p className="notice error">{error}</p>}
       {summary && (
@@ -157,6 +162,7 @@ export function Finance() {
           </button>
         ))}
       </div>
+      {tab === 'transfers' && <Transfers canAct={can('money.refund')} />}
       {tab === 'payments' && <Payments />}
       {tab === 'refunds' && <Refunds />}
       {tab === 'payouts' && <Payouts />}
@@ -389,6 +395,33 @@ function ListState({ rows, error, empty }: { rows: unknown[] | null; error: stri
     return <p className="muted">Loading…</p>;
   }
   return rows.length === 0 ? <p className="muted">{empty}</p> : null;
+}
+
+function Transfers({ canAct }: { canAct: boolean }) {
+  const [status, setStatus] = useState<'' | TransferStatus>('');
+  const [rows, setRows] = useState<Transfer[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<Transfer[]>(`/finance/transfers${status ? `?status=${status}` : ''}`).then(setRows, err => setError(err.message));
+  }, [status]);
+  useEffect(load, [load]);
+  useEvery(load, 15_000);
+  return (
+    <>
+      <div className="filters">
+        <select value={status} onChange={e => setStatus(e.target.value as '' | TransferStatus)} aria-label="Status">
+          <option value="">Problems first, then newest</option>
+          {(Object.keys(TRANSFER_STATUS) as TransferStatus[]).map(s => (
+            <option key={s} value={s}>
+              {TRANSFER_STATUS[s].label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <ListState rows={rows} error={error} empty="Nothing sent yet." />
+      {rows?.map(t => <TransferRow key={t.id} transfer={t} canAct={canAct} onDone={load} />)}
+    </>
+  );
 }
 
 function Payments() {

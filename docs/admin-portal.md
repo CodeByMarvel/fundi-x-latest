@@ -71,8 +71,9 @@ ADMIN PORTAL
 ├── Finance
 │   ├── Money            in, out, commission, per day          ✅ built
 │   ├── Escrow           held per job                          ✅ built
-│   ├── Payouts/refunds  recorded, per mechanic                ✅ built (sending needs M-Pesa)
-│   └── Reconciliation   against M-Pesa statements             ⏳ needs M-Pesa + ledger
+│   ├── Books            double-entry ledger, checked          ✅ built
+│   ├── M-Pesa out       payouts and refunds via B2C           ✅ built
+│   └── Reconciliation   against M-Pesa statements             ⏳ next
 ├── Engineering
 │   ├── System health    database, timers, worker              ✅ built
 │   ├── Incidents        errors and failures, grouped          ✅ built
@@ -206,9 +207,13 @@ Read-only, calculated from the payment, refund and payout records.
   payouts recorded.
 - Lists: payments in, refunds, payouts, jobs with money held (oldest
   first), and earnings per mechanic with their payout number.
-- **Until M-Pesa (Daraja) is connected, refunds and payouts are recorded
-  but not sent;** the page says so. Sending, retries and reconciliation
-  with M-Pesa statements arrive with Daraja and the double-entry ledger.
+- **Books** (docs/ledger.md): where every shilling at M-Pesa is (escrow,
+  owed to mechanics, owed to customers, commission), and the check that
+  the ledger agrees with the records.
+- **M-Pesa out** (docs/mpesa.md): every payout and refund sent through
+  B2C, problems first. A failed one can be sent again or recorded as
+  received (with the M-Pesa code) by people with `money.refund`.
+- Not yet: automatic reconciliation with M-Pesa statements.
 
 ## 4. The job state machine, as the portal shows it
 

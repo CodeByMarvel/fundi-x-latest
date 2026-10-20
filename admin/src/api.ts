@@ -3,7 +3,7 @@
  * cookie the browser sends by itself; this code never sees or stores it.
  */
 
-import type { DisputeInfo, LedgerEntry, ReleaseRow } from './types';
+import type { DisputeInfo, LedgerEntry, ReleaseRow, Transfer } from './types';
 
 /** Empty in development (Vite passes requests on); set for production. */
 const BASE = import.meta.env.VITE_API_URL ?? '';
@@ -267,6 +267,7 @@ export type JobDetail = {
   timers: Timer[];
   incidents: Incident[];
   ledger: LedgerEntry[];
+  transfers: Transfer[];
   /** Where the job is on the H3 grid and how far the search went. */
   matching: {
     cell: string | null;
@@ -300,7 +301,11 @@ export type Dashboard = {
     openDisputes: number;
   };
   mechanics?: { awaitingVerification: number };
-  money?: { heldInEscrow: number; refundsWaiting: { count: number; amount: number } };
+  money?: {
+    heldInEscrow: number;
+    refundsWaiting: { count: number; amount: number };
+    transfersFailed: number;
+  };
   settings?: { callOutFee: number };
 };
 

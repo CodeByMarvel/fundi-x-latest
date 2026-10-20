@@ -14,7 +14,7 @@ import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
 import type { MpesaGateway } from './mpesa/gateway';
 import { registerMpesaCallbacks } from './mpesa/routes';
-import { simulatorGateway } from './mpesa/simulator';
+import { simulatedMpesa } from './mpesa/simulated';
 import { registerPaymentRoutes } from './payments/routes';
 import { registerProviderRoutes } from './providers/routes';
 import { createRequestLog } from './requestLog';
@@ -48,7 +48,7 @@ export function buildApp({
   allowDevHeader = true,
   signInPerMinute = 10,
   simulatePayments = true,
-  mpesa = simulatorGateway(),
+  mpesa,
   mpesaCallbacks = null,
 }: {
   db: Database;
@@ -66,6 +66,8 @@ export function buildApp({
   /** Where Safaricom's callbacks arrive; only with Daraja. */
   mpesaCallbacks?: { secret: string; allowedIps: string[] } | null;
 }) {
+  // The simulator "confirms" B2C transfers the way a Daraja result would.
+  mpesa ??= simulatedMpesa(db);
   const app = Fastify({
     logger,
     // Our own ids (req_…), never one sent by the caller, so a log line, an

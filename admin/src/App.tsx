@@ -175,7 +175,7 @@ function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }
     case 'person':
       return can('users.view') ? <Person key={route.id} id={route.id} can={can} /> : <NotAllowed />;
     case 'finance':
-      return can('money.view') ? <Finance /> : <NotAllowed />;
+      return can('money.view') ? <Finance can={can} /> : <NotAllowed />;
     case 'audit':
       return can('logs.view') ? <AuditLog /> : <NotAllowed />;
     default:

@@ -15,8 +15,9 @@ type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
  * An app with the admin console on, plus helpers for both sides: staff
  * calls (cookie + origin) and phone-app calls (x-dev-user headers).
  */
-export function adminHarness(db: Database) {
+export function adminHarness(db: Database, extra: Partial<Parameters<typeof buildApp>[0]> = {}) {
   const app = buildApp({
+    ...extra,
     db,
     admin: {
       verifyGoogle: googleVerifier(undefined),

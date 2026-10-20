@@ -3,7 +3,7 @@ import { LATE_GRACE_MS } from '../../../src/domain/jobs/rules';
 import type { FastifyInstance } from 'fastify';
 import { isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { Database } from '../db/client';
-import { jobs, providers, refunds } from '../db/schema';
+import { jobs, providers, refunds, transfers } from '../db/schema';
 import { getSetting } from '../settings';
 import { systemNumbers } from './engineering';
 import { JOB_STATUSES } from './jobs';
@@ -93,7 +93,11 @@ export function registerAdminDashboard(admin: FastifyInstance, db: Database) {
           .from(refunds)
           .where(eq(refunds.status, 'PENDING')),
       ]);
-      result.money = { heldInEscrow: held.amount, refundsWaiting: waiting };
+      const [failed] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(transfers)
+        .where(eq(transfers.status, 'FAILED'));
+      result.money = { heldInEscrow: held.amount, refundsWaiting: waiting, transfersFailed: failed.count };
     }
     if (can(me.role, 'settings.edit')) {
       result.settings = { callOutFee: await getSetting(db, 'call_out_fee') };

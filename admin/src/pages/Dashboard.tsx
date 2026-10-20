@@ -58,6 +58,14 @@ function alertsFrom(data: DashboardData, online: boolean | null): Alert[] {
       link: href({ page: 'disputes' }),
     });
   }
+  const failedTransfers = data.money?.transfersFailed ?? 0;
+  if (failedTransfers) {
+    alerts.push({
+      tone: 'bad',
+      text: `${failedTransfers} M-Pesa payout${failedTransfers > 1 ? 's or refunds' : ' or refund'} failed: the money is still owed`,
+      link: href({ page: 'finance' }),
+    });
+  }
   const waiting = data.mechanics?.awaitingVerification ?? 0;
   if (waiting) {
     alerts.push({
@@ -204,7 +212,7 @@ export function Dashboard({ can }: { can: (p: Permission) => boolean }) {
                 {ksh(data.money.refundsWaiting.amount)}
               </p>
               <span className="muted small">
-                {data.money.refundsWaiting.count} waiting · sent once M-Pesa is connected
+                {data.money.refundsWaiting.count} waiting for M-Pesa to confirm
               </span>
             </a>
           </div>

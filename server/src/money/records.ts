@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import type { ReleaseLine } from '../../../src/domain/billing/types';
 import type { Cents } from '../../../src/domain/money';
 import type { Tx } from '../db/client';
-import { payments, refunds, releases } from '../db/schema';
+import { payments, providers, refunds, releases, transfers } from '../db/schema';
 import { newId } from '../ids';
 import { account, post } from './ledger';
 
@@ -62,6 +63,20 @@ export async function createRelease(
     ],
     at,
   );
+  // Queued with the release: the transfer worker sends it to the
+  // mechanic's payout number through M-Pesa B2C.
+  const [provider] = await tx
+    .select({ payoutPhone: providers.payoutPhone })
+    .from(providers)
+    .where(eq(providers.userId, release.providerId));
+  await queueTransfer(tx, {
+    kind: 'PAYOUT',
+    jobId: release.jobId,
+    releaseId: id,
+    recipientId: release.providerId,
+    phone: provider.payoutPhone,
+    amount: gross - commission,
+  }, at);
   return { id, gross, commission, net: gross - commission };
 }
 
@@ -93,5 +108,42 @@ export async function createRefund(
     ],
     at,
   );
+  // Back to the number that paid (docs/job-flow.md §12).
+  const [paid] = await tx.select({ phone: payments.phone }).from(payments).where(eq(payments.id, refund.paymentId));
+  await queueTransfer(tx, {
+    kind: 'REFUND',
+    jobId: refund.jobId,
+    refundId: id,
+    recipientId: refund.customerId,
+    phone: paid.phone,
+    amount: refund.amount,
+  }, at);
   return { id };
+}
+
+/** An M-Pesa B2C transfer waiting for the transfer worker (an outbox row). */
+async function queueTransfer(
+  tx: Tx,
+  transfer: {
+    kind: 'PAYOUT' | 'REFUND';
+    jobId: string;
+    releaseId?: string;
+    refundId?: string;
+    recipientId: string;
+    phone: string;
+    amount: Cents;
+  },
+  at: Date,
+) {
+  if (transfer.amount <= 0) {
+    return; // e.g. a 100% commission: nothing to send
+  }
+  await tx.insert(transfers).values({
+    id: newId('trf'),
+    ...transfer,
+    status: 'QUEUED',
+    nextAttemptAt: at,
+    createdAt: at,
+    updatedAt: at,
+  });
 }

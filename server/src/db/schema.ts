@@ -636,3 +636,52 @@ export const ledgerLines = pgTable(
   },
   t => [index('ledger_lines_account_idx').on(t.account), index('ledger_lines_entry_idx').on(t.entryId)],
 );
+
+/**
+ * QUEUED: waiting for the transfer worker. SENDING: handed to M-Pesa, no
+ * answer yet. SENT: M-Pesa accepted it; the result comes by callback.
+ * SUCCESS: the money reached the phone. FAILED: needs a person (retry from
+ * the admin portal once the cause is fixed).
+ */
+export type TransferStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
+
+/**
+ * Money going out through M-Pesa B2C (docs/mpesa.md): one per payout to a
+ * mechanic and one per refund to a customer. Created in the same
+ * transaction as the release or refund (an outbox), and sent afterwards by
+ * the transfer worker, so a crash can never lose one or send one twice.
+ */
+export const transfers = pgTable(
+  'transfers',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<'PAYOUT' | 'REFUND'>().notNull(),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => jobs.id),
+    releaseId: text('release_id'),
+    refundId: text('refund_id'),
+    /** The mechanic (PAYOUT) or customer (REFUND) receiving it. */
+    recipientId: text('recipient_id').notNull(),
+    phone: text('phone').notNull(),
+    amount: cents('amount'),
+    status: text('status').$type<TransferStatus>().notNull(),
+    /** M-Pesa's id for the request, from its answer; matches the result callback. */
+    conversationId: text('conversation_id'),
+    /** M-Pesa's transaction code once the money arrived. */
+    receiptNumber: text('receipt_number'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull(),
+    lastError: text('last_error'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  t => [
+    index('transfers_status_idx').on(t.status, t.nextAttemptAt),
+    index('transfers_job_idx').on(t.jobId),
+    uniqueIndex('transfers_conversation_idx').on(t.conversationId),
+    uniqueIndex('transfers_release_idx').on(t.releaseId),
+    uniqueIndex('transfers_refund_idx').on(t.refundId),
+  ],
+);

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type JobDetail as Detail, type JobEvent, type Permission } from '../api';
 import { Interventions } from '../components/Interventions';
 import { Notes } from '../components/Notes';
+import { TransferRow } from '../components/TransferRow';
 import { StatusBadge } from '../components/StatusBadge';
 import { humanize, ksh, when } from '../format';
 import { mainPath, STATUS } from '../jobStatus';
@@ -324,6 +325,15 @@ export function JobDetail({ id, can }: { id: string; can: (p: Permission) => boo
           ])}
         />
       </section>
+
+      {data.transfers.length > 0 && (
+        <section className="panel">
+          <h2>M-Pesa out (payouts and refunds)</h2>
+          {data.transfers.map(t => (
+            <TransferRow key={t.id} transfer={t} canAct={can('money.refund')} showJob={false} onDone={load} />
+          ))}
+        </section>
+      )}
 
       <section className="panel">
         <h2>Ledger</h2>

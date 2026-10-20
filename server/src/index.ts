@@ -7,7 +7,8 @@ import { createDatabase } from './db/client';
 import { seedDevData } from './db/devSeed';
 import { darajaConfigFromEnv, darajaGateway } from './mpesa/daraja';
 import { startPromptReconciler } from './mpesa/reconcile';
-import { simulatorGateway } from './mpesa/simulator';
+import { simulatedMpesa } from './mpesa/simulated';
+import { startTransferWorker } from './money/transfers';
 import { startTimerWorker } from './timers/worker';
 
 // Local configuration and secrets (never committed); see .env.example.
@@ -35,7 +36,7 @@ if (IS_PRODUCTION && !daraja) {
   console.error('M-Pesa is not configured: set the MPESA_* values (see .env.example and docs/mpesa.md).');
   process.exit(1);
 }
-const mpesa = daraja ? darajaGateway(daraja) : simulatorGateway();
+const mpesa = daraja ? darajaGateway(daraja) : simulatedMpesa(db);
 if (!IS_PRODUCTION) {
   await seedDevData(db);
 }
@@ -98,6 +99,11 @@ const stopReconciler = daraja
   ? startPromptReconciler(db, mpesa, { onError: err => app.log.error({ err }, 'M-Pesa reconciliation failed') })
   : () => {};
 
+// Sends queued payouts and refunds (M-Pesa B2C), in both modes.
+const stopTransfers = startTransferWorker(db, mpesa, {
+  onError: err => app.log.error({ err }, 'M-Pesa transfers failed'),
+});
+
 const stopTimers = startTimerWorker(db, {
   onRun: run => app.log.info({ timers: run }, 'timers fired'),
   onError: err => app.log.error({ err }, 'timer check failed'),
@@ -107,6 +113,7 @@ const stopTimers = startTimerWorker(db, {
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     stopReconciler();
+    stopTransfers();
     await stopTimers();
     await app.close();
     await close();

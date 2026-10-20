@@ -101,6 +101,8 @@ export const ACTIONS: Record<string, string> = {
   'user.unsuspend': 'Suspension lifted',
   'mechanic.verify': 'Mechanic verified',
   'mechanic.reject': 'Mechanic rejected',
+  'transfer.retry': 'M-Pesa transfer sent again',
+  'transfer.mark_sent': 'M-Pesa transfer recorded as received',
 };
 
 /** Audit actions worth a second look. */

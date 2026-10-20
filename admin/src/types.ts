@@ -220,3 +220,23 @@ export type LedgerEntry = {
   createdAt: string;
   lines: { account: string; amount: number }[];
 };
+
+export type TransferStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'SUCCESS' | 'FAILED';
+
+export type Transfer = {
+  id: string;
+  kind: 'PAYOUT' | 'REFUND';
+  jobId: string;
+  recipientId: string;
+  recipientName?: string | null;
+  phone: string;
+  amount: number;
+  status: TransferStatus;
+  conversationId: string | null;
+  receiptNumber: string | null;
+  attempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  createdAt: string;
+  completedAt: string | null;
+};

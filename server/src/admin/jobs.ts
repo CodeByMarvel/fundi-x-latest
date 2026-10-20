@@ -18,6 +18,7 @@ import {
   refunds,
   releases,
   timers,
+  transfers,
   users,
 } from '../db/schema';
 import { NotFoundError } from '../errors';
@@ -204,6 +205,7 @@ export function registerAdminJobs(admin: FastifyInstance, db: Database) {
         timers: jobTimers,
         incidents: jobIncidents,
         ledger,
+        transfers: await db.select().from(transfers).where(eq(transfers.jobId, job.id)).orderBy(asc(transfers.createdAt)),
       };
     },
   );

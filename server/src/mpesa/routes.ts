@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Database } from '../db/client';
-import { payments } from '../db/schema';
+import { payments, transfers } from '../db/schema';
 import { reportIncident } from '../incidents';
+import { transferFailed, transferSucceeded } from '../money/transfers';
 import { applyStkOutcome } from '../payments/service';
 import { callbackPaths } from './daraja';
 import { stkFailureReason } from './gateway';
@@ -94,4 +95,81 @@ export function registerMpesaCallbacks(
     await applyStkOutcome(db, payment.id, { state: 'SUCCESS', receipt });
     return ACCEPTED;
   });
+
+  /** How a B2C transfer (payout or refund) ended. */
+  app.post<{ Body: B2CResult }>(paths.b2cResult, async request => {
+    if (!fromSafaricom(request)) {
+      await incident(request, 'Callback from an unknown address', { ip: request.ip });
+      return ACCEPTED;
+    }
+    const result = request.body?.Result;
+    const ids = { transferId: result?.OriginatorConversationID, conversationId: result?.ConversationID };
+    if (!result || (!ids.transferId && !ids.conversationId)) {
+      await incident(request, 'Unreadable transfer callback', { body: request.body });
+      return ACCEPTED;
+    }
+    const [transfer] = await db
+      .select()
+      .from(transfers)
+      .where(ids.transferId ? eq(transfers.id, ids.transferId) : eq(transfers.conversationId, ids.conversationId!));
+    if (!transfer) {
+      await incident(request, 'Transfer callback for an unknown transfer', ids);
+      return ACCEPTED;
+    }
+
+    const code = Number(result.ResultCode);
+    if (code !== 0) {
+      await transferFailed(db, { transferId: transfer.id }, `M-Pesa ${code}: ${result.ResultDesc ?? 'failed'}`);
+      return ACCEPTED;
+    }
+    const param = (key: string) => result.ResultParameters?.ResultParameter?.find(p => p.Key === key)?.Value;
+    const receipt = String(result.TransactionID ?? param('TransactionReceipt') ?? '');
+    const sentCents = Math.round(Number(param('TransactionAmount')) * 100);
+    if (!receipt || (param('TransactionAmount') !== undefined && sentCents !== transfer.amount)) {
+      await incident(
+        request,
+        'Transfer callback does not match the transfer',
+        { transferId: transfer.id, expected: transfer.amount, sent: sentCents, receipt },
+        transfer.jobId,
+      );
+      return ACCEPTED;
+    }
+    await transferSucceeded(db, { transferId: transfer.id }, receipt);
+    return ACCEPTED;
+  });
+
+  /**
+   * M-Pesa couldn't process the transfer in time. It most likely didn't
+   * go, but a person checks the statement before retrying.
+   */
+  app.post<{ Body: B2CResult }>(paths.b2cTimeout, async request => {
+    if (!fromSafaricom(request)) {
+      await incident(request, 'Callback from an unknown address', { ip: request.ip });
+      return ACCEPTED;
+    }
+    const result = request.body?.Result;
+    const transferId = result?.OriginatorConversationID;
+    const conversationId = result?.ConversationID;
+    if (transferId || conversationId) {
+      await transferFailed(
+        db,
+        transferId ? { transferId } : { conversationId },
+        'M-Pesa timed out: check the statement before retrying',
+      );
+    }
+    return ACCEPTED;
+  });
 }
+
+/** What M-Pesa posts when a B2C transfer ends. */
+type B2CResult = {
+  Result?: {
+    ResultType?: number;
+    ResultCode?: number | string;
+    ResultDesc?: string;
+    OriginatorConversationID?: string;
+    ConversationID?: string;
+    TransactionID?: string;
+    ResultParameters?: { ResultParameter?: { Key: string; Value?: string | number }[] };
+  };
+};
