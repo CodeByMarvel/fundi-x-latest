@@ -184,7 +184,7 @@ export type Timer = {
 
 export type Incident = {
   id: string;
-  kind: 'server_error' | 'timer_failed' | 'timer_worker_error';
+  kind: 'server_error' | 'timer_failed' | 'timer_worker_error' | 'mpesa';
   title: string;
   detail: Record<string, unknown> | null;
   jobId: string | null;

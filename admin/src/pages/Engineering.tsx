@@ -10,6 +10,7 @@ const KIND: Record<Incident['kind'], string> = {
   server_error: 'Server error',
   timer_failed: 'Timer failed',
   timer_worker_error: 'Timer worker crashed',
+  mpesa: 'M-Pesa',
 };
 
 export function Engineering({ can }: { can: (p: Permission) => boolean }) {

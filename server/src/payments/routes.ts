@@ -6,7 +6,8 @@ import { payments } from '../db/schema';
 import { NotFoundError } from '../errors';
 import { findJob } from '../jobs/store';
 import { jobIdParams } from '../jobs/schemas';
-import { jobMoney, paymentFailed, paymentSucceeded, startPayment } from './service';
+import type { MpesaGateway } from '../mpesa/gateway';
+import { jobMoney, paymentFailed, paymentSucceeded, sendPrompt, startPayment } from './service';
 
 type JobParams = { Params: { id: string } };
 
@@ -18,7 +19,7 @@ type JobParams = { Params: { id: string } };
 export function registerPaymentRoutes(
   app: FastifyInstance,
   db: Database,
-  { simulatePayments }: { simulatePayments: boolean },
+  { simulatePayments, mpesa }: { simulatePayments: boolean; mpesa: MpesaGateway },
 ) {
   app.post<JobParams & { Body: { phone: string; quoteId?: string } }>(
     '/jobs/:id/pay',
@@ -39,7 +40,9 @@ export function registerPaymentRoutes(
     async (request, reply) => {
       const { phone, quoteId } = request.body;
       const payment = await startPayment(db, callerOf(request), request.params.id, phone, quoteId);
-      return reply.status(201).send(payment);
+      // The app watches the payment: PENDING while the prompt is on the
+      // phone, or FAILED (not_sent) if M-Pesa couldn't send it.
+      return reply.status(201).send(await sendPrompt(db, mpesa, payment));
     },
   );
 
@@ -50,7 +53,8 @@ export function registerPaymentRoutes(
     async request => jobMoney(db, callerOf(request), request.params.id),
   );
 
-  if (!simulatePayments) {
+  // The simulated phone only answers simulated prompts.
+  if (!simulatePayments || mpesa.name !== 'simulator') {
     return;
   }
 

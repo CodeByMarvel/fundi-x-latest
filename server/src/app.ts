@@ -12,6 +12,9 @@ import { createErrorHandler } from './errors';
 import { newId } from './ids';
 import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
+import type { MpesaGateway } from './mpesa/gateway';
+import { registerMpesaCallbacks } from './mpesa/routes';
+import { simulatorGateway } from './mpesa/simulator';
 import { registerPaymentRoutes } from './payments/routes';
 import { registerProviderRoutes } from './providers/routes';
 import { createRequestLog } from './requestLog';
@@ -45,6 +48,8 @@ export function buildApp({
   allowDevHeader = true,
   signInPerMinute = 10,
   simulatePayments = true,
+  mpesa = simulatorGateway(),
+  mpesaCallbacks = null,
 }: {
   db: Database;
   logger?: boolean;
@@ -56,6 +61,10 @@ export function buildApp({
   signInPerMinute?: number;
   /** The dev stand-in for the customer's phone during M-Pesa payments. Never in production. */
   simulatePayments?: boolean;
+  /** Daraja (real M-Pesa) or the simulator (development and tests). */
+  mpesa?: MpesaGateway;
+  /** Where Safaricom's callbacks arrive; only with Daraja. */
+  mpesaCallbacks?: { secret: string; allowedIps: string[] } | null;
 }) {
   const app = Fastify({
     logger,
@@ -111,7 +120,10 @@ export function buildApp({
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
   registerProviderRoutes(app, db);
-  registerPaymentRoutes(app, db, { simulatePayments });
+  registerPaymentRoutes(app, db, { simulatePayments, mpesa });
+  if (mpesaCallbacks) {
+    registerMpesaCallbacks(app, db, mpesaCallbacks);
+  }
   // Inside a plugin so it loads after the rate limiter, which only sees
   // routes added once it is ready.
   app.register(async scope => registerAccountRoutes(scope, db, { ...accounts, signInPerMinute }));
@@ -125,7 +137,8 @@ export function buildApp({
       appleSignIn: accounts.appleEnabled,
       adminDevSignIn: admin.devSignIn,
       devUserHeader: allowDevHeader,
-      simulatedMpesa: simulatePayments,
+      simulatedMpesa: simulatePayments && mpesa.name === 'simulator',
+      darajaMpesa: mpesa.name === 'daraja',
     },
   });
   return app;

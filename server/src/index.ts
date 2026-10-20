@@ -5,6 +5,9 @@ import { googleVerifier } from './admin/google';
 import { buildApp } from './app';
 import { createDatabase } from './db/client';
 import { seedDevData } from './db/devSeed';
+import { darajaConfigFromEnv, darajaGateway } from './mpesa/daraja';
+import { startPromptReconciler } from './mpesa/reconcile';
+import { simulatorGateway } from './mpesa/simulator';
 import { startTimerWorker } from './timers/worker';
 
 // Local configuration and secrets (never committed); see .env.example.
@@ -24,6 +27,15 @@ if (!DATABASE_URL) {
 }
 
 const { db, close } = await createDatabase({ url: DATABASE_URL });
+
+// Real M-Pesa (Daraja) when its settings are in .env, otherwise the
+// simulator, which production never allows (docs/mpesa.md).
+const daraja = darajaConfigFromEnv(process.env);
+if (IS_PRODUCTION && !daraja) {
+  console.error('M-Pesa is not configured: set the MPESA_* values (see .env.example and docs/mpesa.md).');
+  process.exit(1);
+}
+const mpesa = daraja ? darajaGateway(daraja) : simulatorGateway();
 if (!IS_PRODUCTION) {
   await seedDevData(db);
 }
@@ -35,6 +47,14 @@ const app = buildApp({
   // Until M-Pesa (Daraja) is connected, the app's "simulated phone" answers
   // PIN prompts. Never in production, whatever .env says.
   simulatePayments: !IS_PRODUCTION && process.env.SIMULATE_MPESA !== 'false',
+  mpesa,
+  mpesaCallbacks: daraja
+    ? {
+        secret: daraja.callbackSecret,
+        // Optional: Safaricom's published callback addresses, comma-separated.
+        allowedIps: (process.env.MPESA_ALLOWED_IPS ?? '').split(',').map(ip => ip.trim()).filter(Boolean),
+      }
+    : null,
   accounts: {
     // The app's Google sign-in uses the same web client id as the portal.
     verifyGoogle: googleVerifier(process.env.GOOGLE_CLIENT_ID),
@@ -69,6 +89,15 @@ if (!process.env.GOOGLE_CLIENT_ID) {
   app.log.warn('Admin sign-in is off: set GOOGLE_CLIENT_ID in server/.env');
 }
 
+if (daraja) {
+  app.log.info(`M-Pesa: Daraja ${daraja.environment}, shortcode ${daraja.shortcode}`);
+} else {
+  app.log.warn('M-Pesa: simulator (no MPESA_* settings in server/.env)');
+}
+const stopReconciler = daraja
+  ? startPromptReconciler(db, mpesa, { onError: err => app.log.error({ err }, 'M-Pesa reconciliation failed') })
+  : () => {};
+
 const stopTimers = startTimerWorker(db, {
   onRun: run => app.log.info({ timers: run }, 'timers fired'),
   onError: err => app.log.error({ err }, 'timer check failed'),
@@ -77,6 +106,7 @@ const stopTimers = startTimerWorker(db, {
 // Ctrl+C: let a running timer finish before the database closes.
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
+    stopReconciler();
     await stopTimers();
     await app.close();
     await close();

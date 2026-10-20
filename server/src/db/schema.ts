@@ -380,6 +380,7 @@ export const payments = pgTable(
      * arrives twice can only ever match one payment (exactly-once).
      */
     checkoutRequestId: text('checkout_request_id'),
+    merchantRequestId: text('merchant_request_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -509,7 +510,8 @@ export const timers = pgTable(
 export type IncidentKind =
   | 'server_error' // a request failed with HTTP 500
   | 'timer_failed' // a timer gave up after repeated errors
-  | 'timer_worker_error'; // the timer worker itself crashed
+  | 'timer_worker_error' // the timer worker itself crashed
+  | 'mpesa'; // M-Pesa refused, failed, or sent something unexpected
 
 /**
  * Problems the server noticed by itself, for the Engineering page, so

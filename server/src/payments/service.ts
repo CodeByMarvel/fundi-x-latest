@@ -17,6 +17,8 @@ import { getJob, moveJob } from '../jobs/service';
 import { lockJob, toPayment, toQuote } from '../jobs/store';
 import { callOutPaid } from '../matching/service';
 import { createRefund, createRelease, recordPaymentReceived } from '../money/records';
+import { type MpesaGateway, MpesaError, type StkOutcome, toShillings } from '../mpesa/gateway';
+import { SIMULATED } from '../mpesa/simulator';
 import { commissionRates } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 
@@ -157,19 +159,62 @@ export function startPayment(
       dueAt: new Date(at.getTime() + STK_TIMEOUT_MS),
       at,
     });
-    // Step 3: send the STK push to M-Pesa here (Daraja), after commit.
+    // The prompt itself is sent after this commits (sendPrompt): never
+    // call M-Pesa while holding the job's lock.
     return toPayment(row);
   });
 }
 
-/** Locks a payment that is still waiting for M-Pesa's answer, or returns undefined. */
-async function lockOpenPayment(tx: Tx, paymentId: string) {
+const PROMPT_TEXT: Record<PaymentPurpose, string> = { CALL_OUT: 'Call-out', SERVICE: 'Service' };
+
+/**
+ * Sends the PIN prompt for a payment just recorded by startPayment. If
+ * M-Pesa refuses or can't be reached, the payment fails as `not_sent` and
+ * the customer can try again; nothing was charged.
+ */
+export async function sendPrompt(db: Database, mpesa: MpesaGateway, payment: Payment): Promise<Payment> {
+  try {
+    const sent = await mpesa.stkPush({
+      phone: payment.phone,
+      shillings: toShillings(payment.amount),
+      // Shown on the customer's statement: Fundi-X and the job.
+      accountReference: `FX${payment.jobId.replace(/^job_/, '').slice(0, 8).toUpperCase()}`,
+      description: payment.quoteId ? 'Extra work' : PROMPT_TEXT[payment.purpose],
+    });
+    const [row] = await db
+      .update(payments)
+      .set({ checkoutRequestId: sent.checkoutRequestId, merchantRequestId: sent.merchantRequestId, updatedAt: new Date() })
+      .where(eq(payments.id, payment.id))
+      .returning();
+    return toPayment(row);
+  } catch (err) {
+    if (!(err instanceof MpesaError)) {
+      throw err;
+    }
+    await db.transaction(tx => paymentFailed(tx, payment.id, 'not_sent', new Date()));
+    const [row] = await db.select().from(payments).where(eq(payments.id, payment.id));
+    return toPayment(row);
+  }
+}
+
+/**
+ * Locks a payment M-Pesa may still report money for: one waiting for an
+ * answer, or one we gave up on after a timeout. A late "paid" for the
+ * latter is real money and must be recorded (and refunded if the job has
+ * moved on). Returns undefined for anything else, e.g. already paid.
+ */
+async function lockOpenPayment(tx: Tx, paymentId: string, forSuccess = false) {
   const [row] = await tx
     .select()
     .from(payments)
     .where(eq(payments.id, paymentId))
     .for('update');
-  return row && (IN_FLIGHT as readonly string[]).includes(row.status) ? row : undefined;
+  if (!row) {
+    return undefined;
+  }
+  const open = (IN_FLIGHT as readonly string[]).includes(row.status);
+  const lateSuccess = forSuccess && row.status === 'FAILED' && row.failureReason === 'timeout';
+  return open || lateSuccess ? row : undefined;
 }
 
 /**
@@ -183,13 +228,13 @@ export async function paymentSucceeded(
   receiptNumber: string,
   at: Date,
 ) {
-  const row = await lockOpenPayment(tx, paymentId);
+  const row = await lockOpenPayment(tx, paymentId, true);
   if (!row) {
     return;
   }
   await tx
     .update(payments)
-    .set({ status: 'SUCCESS', receiptNumber, updatedAt: at })
+    .set({ status: 'SUCCESS', failureReason: null, receiptNumber, updatedAt: at })
     .where(eq(payments.id, paymentId));
   await recordPaymentReceived(tx, row, receiptNumber, at);
   const job = await lockJob(tx, row.jobId);
@@ -263,7 +308,9 @@ export async function paymentFailed(
 
 /**
  * Fails this job's prompts that have been open longer than M-Pesa keeps
- * them. Run by the PAYMENT_TIMEOUT timer.
+ * them, so the customer can try again. Run by the PAYMENT_TIMEOUT timer.
+ * Prompts sent through Daraja are left to the reconciler
+ * (mpesa/reconcile.ts), which asks M-Pesa how they ended first.
  */
 export async function expireStalePayments(tx: Tx, jobId: string, now: Date) {
   const open = await tx
@@ -271,10 +318,23 @@ export async function expireStalePayments(tx: Tx, jobId: string, now: Date) {
     .from(payments)
     .where(and(eq(payments.jobId, jobId), inArray(payments.status, [...IN_FLIGHT])));
   for (const p of open) {
-    if (p.createdAt.getTime() + STK_TIMEOUT_MS <= now.getTime()) {
+    const viaDaraja = !!p.checkoutRequestId && !p.checkoutRequestId.startsWith(SIMULATED);
+    if (!viaDaraja && p.createdAt.getTime() + STK_TIMEOUT_MS <= now.getTime()) {
       await paymentFailed(tx, p.id, 'timeout', now);
     }
   }
+}
+
+/** Applies what M-Pesa says about a prompt (from its callback or a status query). */
+export async function applyStkOutcome(db: Database, paymentId: string, outcome: StkOutcome, at = new Date()) {
+  if (outcome.state === 'PENDING') {
+    return;
+  }
+  await db.transaction(tx =>
+    outcome.state === 'SUCCESS'
+      ? paymentSucceeded(tx, paymentId, outcome.receipt ?? `UNCONFIRMED-${paymentId.slice(-8)}`, at)
+      : paymentFailed(tx, paymentId, outcome.reason, at),
+  );
 }
 
 /**

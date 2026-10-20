@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "merchant_request_id" text;

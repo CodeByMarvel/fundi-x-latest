@@ -228,6 +228,10 @@ export function paymentFailureText(reason?: PaymentFailureReason): string {
       return "M-Pesa couldn't complete the payment: insufficient balance.";
     case 'timeout':
       return "We didn't get a response from your phone in time.";
+    case 'wrong_pin':
+      return 'The M-Pesa PIN was wrong. Please try again.';
+    case 'not_sent':
+      return "We couldn't reach M-Pesa to send the request. Please try again in a moment.";
     default:
       return "The payment didn't go through.";
   }

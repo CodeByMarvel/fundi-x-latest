@@ -30,10 +30,15 @@ export type Charge = {
  */
 export type PaymentStatus = 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
 
+/** Why M-Pesa didn't take the money (from its result codes, docs/mpesa.md). */
 export type PaymentFailureReason =
   | 'cancelled_by_user'
   | 'insufficient_funds'
-  | 'timeout';
+  | 'timeout'
+  | 'wrong_pin'
+  /** M-Pesa refused the request before any prompt reached the phone. */
+  | 'not_sent'
+  | 'declined';
 
 /** Money sent by the customer into Fundi-X escrow. */
 export type Payment = {
