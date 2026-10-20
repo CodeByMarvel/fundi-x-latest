@@ -2,6 +2,7 @@ import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client';
 import { incidents, timers } from '../db/schema';
+import type { RequestLog } from '../requestLog';
 import { BadRequestError, NotFoundError } from '../errors';
 import { reasonFrom, reasonSchema } from './reason';
 import { audit, staffOf } from './session';
@@ -34,7 +35,112 @@ const idParams = {
 } as const;
 
 /** Engineering (docs/admin-portal.md §3.3). */
-export function registerAdminEngineering(admin: FastifyInstance, db: Database) {
+export function registerAdminEngineering(
+  admin: FastifyInstance,
+  db: Database,
+  { requestLog, features }: { requestLog: RequestLog; features: Record<string, boolean> },
+) {
+  /**
+   * Recent requests (this server only, since it started). `filter` keeps
+   * errors (status 400+, which includes refusals) or slow ones (over 1 s).
+   */
+  admin.get<{ Querystring: { filter?: 'all' | 'errors' | 'server_errors' | 'slow' } }>(
+    '/requests',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { filter: { enum: ['all', 'errors', 'server_errors', 'slow'], default: 'all' } },
+        },
+      },
+    },
+    async request => {
+      await staffOf(db, request, 'logs.view');
+      const all = requestLog.list();
+      const keep = {
+        all: () => true,
+        errors: (r: (typeof all)[number]) => r.status >= 400,
+        server_errors: (r: (typeof all)[number]) => r.status >= 500,
+        slow: (r: (typeof all)[number]) => r.ms >= 1000,
+      }[request.query.filter ?? 'all'];
+      const requests = all.filter(keep);
+      const slowest = [...all].sort((a, b) => b.ms - a.ms)[0];
+      return {
+        requests: requests.slice(0, 200),
+        totals: {
+          seen: all.length,
+          errors: all.filter(r => r.status >= 400).length,
+          serverErrors: all.filter(r => r.status >= 500).length,
+          slow: all.filter(r => r.ms >= 1000).length,
+          slowestMs: slowest?.ms ?? 0,
+        },
+      };
+    },
+  );
+
+  /** Every timer, filtered, newest due first. */
+  admin.get<{ Querystring: { status?: 'PENDING' | 'DONE' | 'FAILED'; jobId?: string } }>(
+    '/timers',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: { enum: ['PENDING', 'DONE', 'FAILED'] },
+            jobId: { type: 'string', maxLength: 100 },
+          },
+        },
+      },
+    },
+    async request => {
+      await staffOf(db, request, 'logs.view');
+      const { status, jobId } = request.query;
+      const conditions = [status && eq(timers.status, status), jobId && eq(timers.jobId, jobId)].filter(c => !!c);
+      return db
+        .select()
+        .from(timers)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(timers.dueAt))
+        .limit(200);
+    },
+  );
+
+  /** What's running: versions, switches, database size and row counts. */
+  admin.get('/system', async request => {
+    await staffOf(db, request, 'logs.view');
+    const raw = (result: unknown) => (result as { rows: Record<string, unknown>[] }).rows;
+    const [version] = raw(await db.execute(sql`select version() as version, pg_database_size(current_database())::bigint as bytes`));
+    const tables = raw(
+      await db.execute(sql`
+        select relname as table, n_live_tup::bigint as rows
+        from pg_stat_user_tables order by relname`),
+    );
+    const migrations = raw(
+      await db.execute(sql`select count(*)::int as count, max(created_at)::bigint as last from drizzle.__drizzle_migrations`).catch(
+        () => ({ rows: [] }),
+      ),
+    );
+    return {
+      server: {
+        node: process.version,
+        environment: process.env.NODE_ENV ?? 'development',
+        startedAt: new Date(startedAt).toISOString(),
+        commit: process.env.COMMIT_SHA ?? null,
+      },
+      features,
+      database: {
+        version: String(version?.version ?? '').split(',')[0],
+        bytes: Number(version?.bytes ?? 0),
+        migrations: migrations[0]
+          ? { count: Number(migrations[0].count), lastAt: migrations[0].last ? new Date(Number(migrations[0].last)).toISOString() : null }
+          : null,
+        tables: tables.map(t => ({ table: String(t.table), rows: Number(t.rows) })),
+      },
+    };
+  });
+
   admin.get('/health', async request => {
     await staffOf(db, request, 'logs.view');
     const checkStart = performance.now();

@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { api, ApiError, type JobDetail as Detail, type JobEvent } from '../api';
+import { api, ApiError, type JobDetail as Detail, type JobEvent, type Permission } from '../api';
+import { Interventions } from '../components/Interventions';
+import { Notes } from '../components/Notes';
 import { StatusBadge } from '../components/StatusBadge';
 import { humanize, ksh, when } from '../format';
 import { mainPath, STATUS } from '../jobStatus';
@@ -24,7 +26,7 @@ function describe(metadata: JobEvent['metadata']) {
     });
 }
 
-export function JobDetail({ id }: { id: string }) {
+export function JobDetail({ id, can }: { id: string; can: (p: Permission) => boolean }) {
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +97,27 @@ export function JobDetail({ id }: { id: string }) {
         )}
       </section>
 
+      <Interventions data={data} can={can} onDone={load} />
+
+      {job.dispute?.resolution && (
+        <section className="panel">
+          <h2>Dispute</h2>
+          <p>
+            Customer said: “{job.dispute.reason}”
+            <br />
+            Decision: <strong>{humanize(job.dispute.resolution.outcome)}</strong> · “{job.dispute.resolution.note}”{' '}
+            <span className="muted small">{when(job.dispute.resolution.at)}</span>
+            {job.dispute.resolution.outcome === 'SPLIT' && (
+              <span className="muted small">
+                {' '}
+                · refund {ksh(job.dispute.resolution.customerRefund ?? 0)}, mechanic{' '}
+                {ksh(job.dispute.resolution.providerPayout ?? 0)}
+              </span>
+            )}
+          </p>
+        </section>
+      )}
+
       {data.incidents.length > 0 && (
         <section className="panel alert-panel">
           <h2>Incidents on this job</h2>
@@ -115,7 +138,9 @@ export function JobDetail({ id }: { id: string }) {
           {data.customer ? (
             <dl>
               <dt>Name</dt>
-              <dd>{data.customer.name}</dd>
+              <dd>
+                <a href={href({ page: 'person', id: data.customer.id })}>{data.customer.name}</a>
+              </dd>
               <dt>Phone</dt>
               <dd className="mono">{data.customer.phone}</dd>
               <dt>Account</dt>
@@ -131,7 +156,9 @@ export function JobDetail({ id }: { id: string }) {
             <dl>
               <dt>Name</dt>
               <dd>
-                {data.provider.businessName ?? data.provider.name}
+                <a href={href({ page: 'person', id: data.provider.id })}>
+                  {data.provider.businessName ?? data.provider.name}
+                </a>
                 <span className="muted small"> · {data.provider.type}</span>
               </dd>
               <dt>Phone</dt>
@@ -151,7 +178,9 @@ export function JobDetail({ id }: { id: string }) {
             <dt>Vehicle</dt>
             <dd>
               {job.vehicle.make} {job.vehicle.model}
-              {job.vehicle.year && ` (${job.vehicle.year})`} ·{' '}
+              {job.vehicle.year && ` (${job.vehicle.year})`}
+              {job.vehicle.engineCc && ` · ${job.vehicle.engineCc} cc`}
+              {job.vehicle.fuel && ` ${job.vehicle.fuel}`} ·{' '}
               <span className="mono">{job.vehicle.registration}</span>
             </dd>
             <dt>Type</dt>
@@ -159,6 +188,21 @@ export function JobDetail({ id }: { id: string }) {
               {job.requestType === 'service' ? 'Service' : 'Repair'} ·{' '}
               {job.pricingMode === 'FIXED' ? 'fixed price' : 'quoted on site'}
             </dd>
+            {job.partsOption && (
+              <>
+                <dt>Parts</dt>
+                <dd>{job.partsOption === 'MECHANIC' ? 'Mechanic brings them' : "Customer's own"}</dd>
+              </>
+            )}
+            {job.reassignment && (
+              <>
+                <dt>Reassigned</dt>
+                <dd>
+                  {when(job.reassignment.at)}
+                  {job.reassignment.note && ` · “${job.reassignment.note}”`}
+                </dd>
+              </>
+            )}
             <dt>Where</dt>
             <dd>
               {job.location.label}
@@ -247,6 +291,8 @@ export function JobDetail({ id }: { id: string }) {
         </ol>
       </section>
 
+      <Notes targetType="job" targetId={job.id} />
+
       <section className="panel">
         <h2>Money records</h2>
         <Records
@@ -260,7 +306,7 @@ export function JobDetail({ id }: { id: string }) {
             humanize(p.purpose),
             `${humanize(p.status)}${p.failureReason ? ` (${humanize(p.failureReason)})` : ''}`,
             p.receiptNumber ?? p.phone,
-            ksh(p.amount),
+            p.partsAmount ? `${ksh(p.amount)} (parts ${ksh(p.partsAmount)})` : ksh(p.amount),
           ])}
         />
         <Records
@@ -271,6 +317,7 @@ export function JobDetail({ id }: { id: string }) {
           title="Payouts to mechanic"
           rows={data.releases.map(r => [
             when(r.createdAt),
+            r.lines.map(l => humanize(l.purpose)).join(' + '),
             `gross ${ksh(r.gross)}`,
             `commission ${ksh(r.commission)}`,
             ksh(r.net),

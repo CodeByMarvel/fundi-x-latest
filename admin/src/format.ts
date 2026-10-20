@@ -93,6 +93,14 @@ export const ACTIONS: Record<string, string> = {
   'timer.retry': 'Timer retried',
   'incident.resolve': 'Incident resolved',
   'catalog.update': 'Catalog changed',
+  'dispute.resolve': 'Dispute resolved',
+  'job.cancel': 'Job cancelled by support',
+  'job.reassign': 'Job reassigned',
+  'note.add': 'Note added',
+  'user.suspend': 'Account suspended',
+  'user.unsuspend': 'Suspension lifted',
+  'mechanic.verify': 'Mechanic verified',
+  'mechanic.reject': 'Mechanic rejected',
 };
 
 /** Audit actions worth a second look. */

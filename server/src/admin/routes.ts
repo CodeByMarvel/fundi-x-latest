@@ -1,6 +1,7 @@
 import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Database } from '../db/client';
+import type { RequestLog } from '../requestLog';
 import { auditLog, settings, staff } from '../db/schema';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../errors';
 import {
@@ -15,7 +16,10 @@ import type { GoogleIdentity, GoogleVerifier } from './google';
 import { registerAdminCatalog } from './catalog';
 import { registerAdminDashboard } from './dashboard';
 import { registerAdminEngineering } from './engineering';
+import { registerAdminFinance } from './finance';
 import { registerAdminJobs } from './jobs';
+import { registerAdminMechanics } from './mechanics';
+import { registerAdminSupport } from './support';
 import { ROLE_PERMISSIONS } from './permissions';
 import { reasonFrom, reasonSchema } from './reason';
 import {
@@ -60,7 +64,11 @@ const NOT_STAFF = 'This Google account is not allowed into the admin console';
 export function registerAdminRoutes(
   app: FastifyInstance,
   db: Database,
-  config: AdminConfig & { signInPerMinute: number },
+  config: AdminConfig & {
+    signInPerMinute: number;
+    requestLog: RequestLog;
+    features: Record<string, boolean>;
+  },
 ) {
   const signInLimit = {
     rateLimit: { max: config.signInPerMinute, timeWindow: '1 minute' },
@@ -300,8 +308,11 @@ export function registerAdminRoutes(
 
       registerAdminDashboard(admin, db);
       registerAdminJobs(admin, db);
-      registerAdminEngineering(admin, db);
+      registerAdminEngineering(admin, db, { requestLog: config.requestLog, features: config.features });
       registerAdminCatalog(admin, db);
+      registerAdminSupport(admin, db);
+      registerAdminMechanics(admin, db);
+      registerAdminFinance(admin, db);
     },
     { prefix: '/admin' },
   );

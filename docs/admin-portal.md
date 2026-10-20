@@ -62,18 +62,22 @@ Being staff never means skipping a rule.
 ADMIN PORTAL
 ├── Dashboard            what is happening right now; alerts first
 ├── Operations
-│   ├── Jobs             search, job detail, timeline          ✅ built
-│   ├── Customers        directory, history, account status   ⏳
-│   └── Mechanics        verification, reliability, status     ⏳
+│   ├── Jobs             search, detail, timeline, step in     ✅ built
+│   └── Mechanics        verification, reliability, status     ✅ built
+├── Customer care
+│   ├── Disputes         queue, decision, money split          ✅ built
+│   ├── Customers        directory, history, suspend, notes    ✅ built
+│   └── Evidence         photos on disputes                    ⏳ needs uploads
 ├── Finance
-│   ├── Transactions     call-out, service, refunds, payouts   ⏳ needs M-Pesa
-│   ├── Escrow           held per job, reconciliation          ⏳ needs M-Pesa
-│   └── Reports          revenue, volume, averages             ⏳ needs real jobs
-├── Support
-│   └── Disputes         claim, evidence, resolution           ⏳ needs disputes
+│   ├── Money            in, out, commission, per day          ✅ built
+│   ├── Escrow           held per job                          ✅ built
+│   ├── Payouts/refunds  recorded, per mechanic                ✅ built (sending needs M-Pesa)
+│   └── Reconciliation   against M-Pesa statements             ⏳ needs M-Pesa + ledger
 ├── Engineering
 │   ├── System health    database, timers, worker              ✅ built
-│   └── Incidents        errors and failures, grouped          ✅ built
+│   ├── Incidents        errors and failures, grouped          ✅ built
+│   ├── Requests         recent requests, errors, slow ones    ✅ built
+│   └── System           versions, switches, tables            ✅ built
 ├── Configuration
 │   ├── Catalog          maintenance prices, models, history   ✅ built
 │   └── Settings         call-out fee, matching, commission    ✅ built
@@ -118,6 +122,16 @@ M-Pesa.
 - Incidents are resolved with a note. A problem that happens again after
   being resolved opens a new incident.
 - Failed timers can be retried (an intervention: reason required).
+- **Recent requests:** the last 500 requests this server answered (method,
+  route, status, time taken, who, request id), filterable to errors and
+  slow ones. Kept in memory only; the permanent log is the server output.
+  Query strings are left out (searches can hold phone numbers).
+- **Timers:** every timer, filterable by status.
+- **System:** environment, Node and PostgreSQL versions, database size,
+  migrations applied, rows per table, and which switches are on (Google,
+  Apple, development sign-in, simulated M-Pesa). A development-only switch
+  that is on in production is shown in red. Values are on/off only; no
+  secret is ever sent to the portal.
 
 ### 3.4 Configuration
 
@@ -144,6 +158,57 @@ The fixed prices for maintenance (job-flow.md §3.2), edited by people with
 - **History:** every saved version with who, when and why; any version can
   be restored. A save made from an outdated version is refused, so two
   people editing at once can't silently undo each other.
+
+### 3.6 Customer care
+
+- **Disputes:** customers who reported a problem after the work, oldest
+  first, with what is still held. The decision is made on the job's page
+  (whole history in view): **mechanic fixes it** (back to work, counts
+  against reliability), **work was fine** (completes, money released), or
+  **divide the money** (the refund and the payout must add up to exactly
+  what's held; on a fixed-price job the parts were already paid out, so
+  only call-out and labour are divided). `disputes.resolve`.
+- **Stepping in on a job** (`jobs.cancel`), as `SYSTEM` with the staff
+  member and reason in the event (rule 4):
+  - **Cancel and refund** from any status before the work is finished;
+    everything still held goes back to the customer
+    (`support_cancelled`). Finished work goes through a dispute instead.
+  - **Find another mechanic** while the assigned one is accepted or on
+    the way: the job searches again from the first ring, the call-out
+    stays held.
+- **Customers:** search by name, phone, email or id; a person's page shows
+  their account, sign-in devices, bookings and money.
+- **Suspend / lift suspension** (`users.suspend`): every request from the
+  person's app is refused until lifted; a suspended mechanic goes offline.
+- **Notes** on a job or a person, only ever added, so the next person on
+  the case sees the story.
+
+### 3.7 Mechanics
+
+- **Waiting** list first, oldest first: a mechanic can't go online until
+  verified. The person page shows who they are and their record.
+- **Verify** or **reject** (`providers.verify`), with a reason. A rejection
+  reason is shown to the mechanic in the app; when they update their
+  profile it goes back to waiting. Rejecting a verified mechanic takes
+  them offline.
+- **Record:** jobs done, rating, reliability events in the last 30 days
+  (facts; thresholds are still open, job-flow.md §17) and payouts.
+- Not yet: documents (ID, permits) and photos, which need file storage.
+
+### 3.8 Finance
+
+Read-only, calculated from the payment, refund and payout records.
+
+- For 7, 30 or 90 days: paid in, Fundi-X commission, refunds, and a daily
+  chart (with a table view). Paid in and commission per kind of money
+  (call-out, labour, parts).
+- Now: held in escrow (and on how many jobs), refunds waiting to be sent,
+  payouts recorded.
+- Lists: payments in, refunds, payouts, jobs with money held (oldest
+  first), and earnings per mechanic with their payout number.
+- **Until M-Pesa (Daraja) is connected, refunds and payouts are recorded
+  but not sent;** the page says so. Sending, retries and reconciliation
+  with M-Pesa statements arrive with Daraja and the double-entry ledger.
 
 ## 4. The job state machine, as the portal shows it
 
@@ -172,13 +237,15 @@ Roles are bundles of permissions, defined in
 | Permission | Allows |
 |---|---|
 | `jobs.view` | Search jobs, open job detail and timeline |
-| `jobs.cancel` | Cancel a job as an intervention (planned) |
-| `money.view` | Finance pages (planned) |
-| `money.refund` | Issue a refund (planned) |
-| `users.view` | Customer and mechanic directories (planned) |
-| `users.suspend` | Suspend or restore an app account (planned) |
-| `providers.verify` | Approve or reject a mechanic (planned) |
+| `jobs.cancel` | Cancel and refund a job, or reassign its mechanic |
+| `disputes.resolve` | Decide a dispute |
+| `money.view` | Finance pages |
+| `money.refund` | Issue a refund (planned, with M-Pesa) |
+| `users.view` | Customers, mechanics, person pages, notes on people |
+| `users.suspend` | Suspend or restore an app account |
+| `providers.verify` | Verify or reject a mechanic |
 | `settings.edit` | View and change settings |
+| `catalog.edit` | View and change the maintenance catalog |
 | `logs.view` | Audit log, incidents, system health |
 | `incidents.resolve` | Mark an incident resolved |
 | `timers.retry` | Retry a failed timer |
@@ -194,8 +261,8 @@ Roles are bundles of permissions, defined in
 | Compliance | planned | providers.verify, logs.view, disputes (planned) |
 | Manager | planned | read-only across sections, reports |
 
-More permissions (`disputes.resolve`, `payouts.manage`, `reports.view`) are
-added with the features that need them.
+More permissions (`payouts.manage`, `reports.view`) are added with the
+features that need them.
 
 ---
 
@@ -232,4 +299,9 @@ never edited or deleted.
 | Jobs search and detail | `/admin/jobs`, `/admin/jobs/:id` |
 | Dashboard summary | `/admin/dashboard` |
 | Incidents, request ids, system health, timer retry | `incidents`, `/admin/incidents`, `/admin/health`, `/admin/timers/:id/retry` |
+| Catalog (2026-10-20) | `catalog_versions`, `/admin/catalog/*` |
+| Customer care: disputes, cancel, reassign, notes, customers, suspend (2026-10-21) | `server/src/admin/support.ts`, `server/src/jobs/support.ts`, `support_notes` |
+| Mechanics: verification, record (2026-10-21) | `server/src/admin/mechanics.ts` |
+| Finance (2026-10-21) | `server/src/admin/finance.ts` |
+| Recent requests, timers, system (2026-10-21) | `server/src/requestLog.ts`, `/admin/requests`, `/admin/timers`, `/admin/system` |
 | Website | `admin/` (Vite + React) |

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { JobStatus } from './api';
+import type { Verification } from './types';
 
 /**
  * Pages live in the address's #part (#/jobs/job_…), so any page can be
@@ -13,6 +14,11 @@ export type Route =
   | { page: 'engineering' }
   | { page: 'settings' }
   | { page: 'catalog' }
+  | { page: 'disputes' }
+  | { page: 'customers'; q?: string }
+  | { page: 'mechanics'; verification?: Verification }
+  | { page: 'person'; id: string }
+  | { page: 'finance' }
   | { page: 'audit' };
 
 export function parse(hash: string): Route {
@@ -28,9 +34,22 @@ export function parse(hash: string): Route {
             ...(params.get('status') && { status: params.get('status') as JobStatus }),
             ...(params.get('q') && { q: params.get('q')! }),
           };
+    case 'people':
+      return second ? { page: 'person', id: second } : { page: 'customers' };
+    case 'customers':
+      return { page: 'customers', ...(params.get('q') && { q: params.get('q')! }) };
+    case 'mechanics':
+      return {
+        page: 'mechanics',
+        ...(params.get('verification') && {
+          verification: params.get('verification') as Verification,
+        }),
+      };
     case 'engineering':
     case 'settings':
     case 'catalog':
+    case 'disputes':
+    case 'finance':
     case 'audit':
       return { page: first };
     default:
@@ -53,6 +72,12 @@ export function href(route: Route): string {
       const query = params.toString();
       return `#/jobs${query ? `?${query}` : ''}`;
     }
+    case 'person':
+      return `#/people/${encodeURIComponent(route.id)}`;
+    case 'customers':
+      return route.q ? `#/customers?q=${encodeURIComponent(route.q)}` : '#/customers';
+    case 'mechanics':
+      return route.verification ? `#/mechanics?verification=${route.verification}` : '#/mechanics';
     case 'dashboard':
       return '#/';
     default:

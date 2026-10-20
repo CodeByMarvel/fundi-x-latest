@@ -50,12 +50,20 @@ function alertsFrom(data: DashboardData, online: boolean | null): Alert[] {
       link: href({ page: 'jobs', status: 'EN_ROUTE' }),
     });
   }
-  const disputed = data.jobs?.active.DISPUTED ?? 0;
+  const disputed = data.jobs?.openDisputes ?? 0;
   if (disputed) {
     alerts.push({
       tone: 'warn',
-      text: `${disputed} disputed job${disputed > 1 ? 's' : ''}`,
-      link: href({ page: 'jobs', status: 'DISPUTED' }),
+      text: `${disputed} dispute${disputed > 1 ? 's' : ''} waiting for a decision: the money stays held until then`,
+      link: href({ page: 'disputes' }),
+    });
+  }
+  const waiting = data.mechanics?.awaitingVerification ?? 0;
+  if (waiting) {
+    alerts.push({
+      tone: 'warn',
+      text: `${waiting} mechanic${waiting > 1 ? 's' : ''} waiting to be verified: they can't go online until then`,
+      link: href({ page: 'mechanics', verification: 'PENDING' }),
     });
   }
   return alerts;
@@ -179,14 +187,29 @@ export function Dashboard({ can }: { can: (p: Permission) => boolean }) {
         </section>
       )}
 
-      <section className="panel muted-panel">
-        <h2>Arrives with M-Pesa and matching</h2>
-        <p className="muted">
-          Mechanics online, jobs awaiting a match, payments pending and
-          revenue. They appear here once the server features behind them
-          exist (docs/admin-portal.md §1, rule 6).
-        </p>
-      </section>
+      {data?.money && (
+        <>
+          <div className="section-head">
+            <h2>Money now</h2>
+            <a href={href({ page: 'finance' })}>Finance</a>
+          </div>
+          <div className="cards">
+            <a className="card clickable" href={href({ page: 'finance' })}>
+              <h3>Held in escrow</h3>
+              <p className="stat">{ksh(data.money.heldInEscrow)}</p>
+            </a>
+            <a className="card clickable" href={href({ page: 'finance' })}>
+              <h3>Refunds to send</h3>
+              <p className={`stat ${data.money.refundsWaiting.count ? 'warn' : ''}`}>
+                {ksh(data.money.refundsWaiting.amount)}
+              </p>
+              <span className="muted small">
+                {data.money.refundsWaiting.count} waiting · sent once M-Pesa is connected
+              </span>
+            </a>
+          </div>
+        </>
+      )}
     </>
   );
 }

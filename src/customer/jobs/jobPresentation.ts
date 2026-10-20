@@ -156,6 +156,11 @@ const CANCELLATION_VIEW: Record<
     subtitle:
       'Fundi-X support reviewed it and divided the payment. See below for your refund.',
   },
+  support_cancelled: {
+    title: 'Fundi-X support closed this job',
+    subtitle:
+      'Everything still held for this job is refunded to you. Sorry for the trouble.',
+  },
 };
 
 /**

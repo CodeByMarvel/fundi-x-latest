@@ -141,6 +141,7 @@ export function settlementFor(
     case 'call_out_unpaid':
     case 'no_provider_available':
     case 'provider_late':
+    case 'support_cancelled':
       return refundAll;
     case 'customer_cancelled':
       // Once the provider has set off, the call-out paid for their trip.

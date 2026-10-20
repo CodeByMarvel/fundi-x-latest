@@ -71,7 +71,7 @@ function asProvider<T>(
   });
 }
 
-const reliability = (
+export const reliability = (
   tx: Tx,
   providerId: string,
   jobId: string,

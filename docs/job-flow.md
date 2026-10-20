@@ -321,6 +321,7 @@ function (`settlementFor`) decides; the backend records the result.
 | `customer_no_show` | Release | – |
 | `COMPLETED` (confirmed, auto-confirmed, or dispute upheld) | Release | Release |
 | `dispute_resolved` | Per resolution (§9) | Per resolution (§9) |
+| `support_cancelled` (Fundi-X support stopped the job before the work was finished) | Refund | Refund (what's still held) |
 
 - **Release** = paid to the assigned provider, minus commission.
 - **Commission (CONFIGURABLE, admin Settings):** per money purpose in basis
@@ -363,6 +364,16 @@ DisputeResolution
 - Commission applies to `providerPayout` only.
 
 ---
+
+### 9.1 Support stepping in (2026-10-21)
+
+Besides disputes, `SYSTEM` (Fundi-X support, with a reason, in the admin
+portal) may:
+
+- **Cancel** a job from `OFFERED` through `IN_PROGRESS` (reason
+  `support_cancelled`): everything still held is refunded.
+- **Reassign** an `ACCEPTED` or `EN_ROUTE` job back to `SEARCHING`; matching
+  starts again from ring 0, the call-out stays held.
 
 ## 10. Time limits (CONFIGURABLE)
 

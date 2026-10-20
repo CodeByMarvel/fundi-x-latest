@@ -26,7 +26,7 @@ import { useCurrentProviderId, useMechanicProfile } from '../data/currentMechani
 const VERIFICATION = {
   PENDING: 'Waiting for Fundi-X to verify you',
   VERIFIED: 'Verified by Fundi-X',
-  REJECTED: 'Not approved: contact provider support',
+  REJECTED: 'Not approved yet: update your profile to send it again',
 } as const;
 
 const comingSoon = (what: string) => () =>
@@ -73,7 +73,12 @@ export function AccountScreen() {
             <SettingsRow
               Icon={ShieldCheck}
               label="Verification"
-              value={VERIFICATION[account.provider.verification]}
+              value={
+                account.provider.verification === 'REJECTED' &&
+                account.provider.verificationNote
+                  ? `${VERIFICATION.REJECTED}. Fundi-X says: ${account.provider.verificationNote}`
+                  : VERIFICATION[account.provider.verification]
+              }
             />
             <SettingsRow
               Icon={Wrench}

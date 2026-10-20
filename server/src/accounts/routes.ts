@@ -1,4 +1,4 @@
-import { and, eq, notInArray, or } from 'drizzle-orm';
+import { and, eq, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { TRANSITIONS, isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { JobStatus } from '../../../src/domain/jobs/types';
@@ -57,6 +57,8 @@ async function accountView(db: Database, user: UserRow) {
           businessName: provider.businessName,
           specialty: provider.specialty,
           verification: provider.verification,
+          // Shown to the mechanic, e.g. why the profile was rejected.
+          verificationNote: provider.verificationNote,
         }
       : null,
     nextStep,
@@ -294,9 +296,16 @@ export function registerAccountRoutes(
           updatedAt: at,
         })
         // Editing keeps the verification decision; only Fundi-X changes it.
+        // A rejected profile that's been fixed goes back in the queue.
         .onConflictDoUpdate({
           target: providers.userId,
-          set: { type, businessName, specialty: specialty.trim(), updatedAt: at },
+          set: {
+            type,
+            businessName,
+            specialty: specialty.trim(),
+            verification: sql`case when ${providers.verification} = 'REJECTED' then 'PENDING' else ${providers.verification} end`,
+            updatedAt: at,
+          },
         });
       return accountView(db, user);
     },

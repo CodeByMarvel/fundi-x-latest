@@ -819,3 +819,84 @@ textarea.full {
   width: 100%;
   margin-bottom: 10px;
 }
+
+/* Customer care */
+.secondary.danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+.intervene {
+  border-color: var(--primary);
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.choice.selected {
+  border-color: var(--primary);
+  background: var(--primary-surface);
+}
+.note-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.section-tabs {
+  margin: 18px 0 10px;
+}
+
+/* Charts: one series in the brand color; a deeper step in dark mode
+   (checked with the dataviz palette validator). */
+:root {
+  --chart-bar: #ff6b35;
+  --chart-grid: var(--border);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --chart-bar: #f0622c;
+  }
+}
+.chart {
+  position: relative;
+}
+.chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart .grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+.chart .axis {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.chart .bar {
+  fill: var(--chart-bar);
+}
+.chart .bar.active {
+  fill: var(--primary-strong);
+}
+.chart-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}

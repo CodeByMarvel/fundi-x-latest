@@ -3,6 +3,8 @@
  * cookie the browser sends by itself; this code never sees or stores it.
  */
 
+import type { DisputeInfo, ReleaseRow } from './types';
+
 /** Empty in development (Vite passes requests on); set for production. */
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
@@ -68,6 +70,7 @@ export const serverHealth = () =>
 export type Permission =
   | 'jobs.view'
   | 'jobs.cancel'
+  | 'disputes.resolve'
   | 'money.view'
   | 'money.refund'
   | 'users.view'
@@ -127,7 +130,14 @@ export type JobStatus =
   | 'CANCELLED'
   | 'DISPUTED';
 
-type Vehicle = { make: string; model: string; registration: string; year?: number };
+type Vehicle = {
+  make: string;
+  model: string;
+  registration: string;
+  year?: number;
+  engineCc?: number;
+  fuel?: string;
+};
 
 export type JobRequest = {
   requestType: 'repair' | 'service';
@@ -138,6 +148,7 @@ export type JobRequest = {
   urgency: string;
   location: { label: string; address?: string };
   answers: Record<string, string[]>;
+  partsOption?: 'MECHANIC' | 'OWN';
 };
 
 export type JobListRow = {
@@ -194,7 +205,9 @@ export type JobDetail = {
     createdAt: string;
     updatedAt: string;
     completedAt?: string;
-    cancellation?: { by: string; reason: string; fromStatus: JobStatus };
+    cancellation?: { by: string; reason: string; fromStatus: JobStatus; note?: string };
+    dispute?: DisputeInfo;
+    reassignment?: { providerId: string; note?: string; at: string };
   };
   customer: { id: string; name: string; phone: string; status: string } | null;
   provider: {
@@ -223,6 +236,7 @@ export type JobDetail = {
     id: string;
     purpose: string;
     amount: number;
+    partsAmount: number;
     status: string;
     phone: string;
     receiptNumber: string | null;
@@ -230,7 +244,7 @@ export type JobDetail = {
     createdAt: string;
   }[];
   refunds: { id: string; amount: number; reason: string; status: string; createdAt: string }[];
-  releases: { id: string; gross: number; commission: number; net: number; createdAt: string }[];
+  releases: ReleaseRow[];
   quotes: {
     id: string;
     kind: string;
@@ -282,7 +296,10 @@ export type Dashboard = {
     today: { created: number; completed: number; cancelled: number };
     /** Mechanics past their promised arrival time + 20 min, still driving. */
     lateArrivals: number;
+    openDisputes: number;
   };
+  mechanics?: { awaitingVerification: number };
+  money?: { heldInEscrow: number; refundsWaiting: { count: number; amount: number } };
   settings?: { callOutFee: number };
 };
 

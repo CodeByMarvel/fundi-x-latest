@@ -3,12 +3,13 @@ import { LATE_GRACE_MS } from '../../../src/domain/jobs/rules';
 import type { FastifyInstance } from 'fastify';
 import { isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { Database } from '../db/client';
-import { jobs } from '../db/schema';
+import { jobs, providers, refunds } from '../db/schema';
 import { getSetting } from '../settings';
 import { systemNumbers } from './engineering';
 import { JOB_STATUSES } from './jobs';
 import { can } from './permissions';
 import { staffOf } from './session';
+import { heldInEscrowSql } from './support';
 
 const NAIROBI_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3 all year, no DST
 
@@ -68,7 +69,31 @@ export function registerAdminDashboard(admin: FastifyInstance, db: Database) {
         active: Object.fromEntries(byStatus.map(r => [r.status, r.count])),
         today: counts,
         lateArrivals: late.count,
+        // Customers waiting on Fundi-X support.
+        openDisputes: byStatus.find(r => r.status === 'DISPUTED')?.count ?? 0,
       };
+    }
+    if (can(me.role, 'users.view')) {
+      const [pending] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(providers)
+        .where(eq(providers.verification, 'PENDING'));
+      result.mechanics = { awaitingVerification: pending.count };
+    }
+    if (can(me.role, 'money.view')) {
+      const [[held], [waiting]] = await Promise.all([
+        db
+          .select({ amount: sql<number>`coalesce(sum(${heldInEscrowSql}), 0)::bigint`.mapWith(Number) })
+          .from(jobs),
+        db
+          .select({
+            count: sql<number>`count(*)::int`,
+            amount: sql<number>`coalesce(sum(${refunds.amount}), 0)::bigint`.mapWith(Number),
+          })
+          .from(refunds)
+          .where(eq(refunds.status, 'PENDING')),
+      ]);
+      result.money = { heldInEscrow: held.amount, refundsWaiting: waiting };
     }
     if (can(me.role, 'settings.edit')) {
       result.settings = { callOutFee: await getSetting(db, 'call_out_fee') };

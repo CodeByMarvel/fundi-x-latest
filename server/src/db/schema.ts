@@ -137,6 +137,13 @@ export const providers = pgTable('providers', {
   verification: text('verification')
     .$type<'PENDING' | 'VERIFIED' | 'REJECTED'>()
     .notNull(),
+  /**
+   * Why Fundi-X rejected (or later verified) the profile, in words the
+   * mechanic sees in the app. Set with the decision in the admin portal.
+   */
+  verificationNote: text('verification_note'),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  verifiedBy: text('verified_by'),
   /** The provider's "available" switch. */
   online: boolean('online').notNull().default(false),
   /**
@@ -557,4 +564,23 @@ export const catalogVersions = pgTable(
     createdAt: createdAt(),
   },
   t => [index('catalog_versions_created_idx').on(t.createdAt)],
+);
+
+/**
+ * Staff notes on a job or an app user ("called her, she'll be home at 3"),
+ * so whoever picks the case up next sees the story. Only ever added.
+ */
+export const supportNotes = pgTable(
+  'support_notes',
+  {
+    id: text('id').primaryKey(),
+    targetType: text('target_type').$type<'job' | 'user'>().notNull(),
+    targetId: text('target_id').notNull(),
+    staffId: text('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    body: text('body').notNull(),
+    createdAt: createdAt(),
+  },
+  t => [index('support_notes_target_idx').on(t.targetType, t.targetId)],
 );

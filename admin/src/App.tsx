@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, SIGNED_OUT_EVENT, type Me, type Permission } from './api';
 import { AuditLog } from './pages/AuditLog';
 import { Catalog } from './pages/Catalog';
+import { Customers } from './pages/Customers';
+import { Disputes } from './pages/Disputes';
+import { Finance } from './pages/Finance';
+import { Mechanics } from './pages/Mechanics';
+import { Person } from './pages/Person';
 import { Dashboard } from './pages/Dashboard';
 import { Engineering } from './pages/Engineering';
 import { JobDetail } from './pages/JobDetail';
@@ -18,7 +23,24 @@ type NavItem = { route: Route; label: string; needs?: Permission };
  */
 const SECTIONS: { title?: string; items: NavItem[] }[] = [
   { items: [{ route: { page: 'dashboard' }, label: 'Dashboard' }] },
-  { title: 'Operations', items: [{ route: { page: 'jobs' }, label: 'Jobs', needs: 'jobs.view' }] },
+  {
+    title: 'Operations',
+    items: [
+      { route: { page: 'jobs' }, label: 'Jobs', needs: 'jobs.view' },
+      { route: { page: 'mechanics' }, label: 'Mechanics', needs: 'users.view' },
+    ],
+  },
+  {
+    title: 'Customer care',
+    items: [
+      { route: { page: 'disputes' }, label: 'Disputes', needs: 'jobs.view' },
+      { route: { page: 'customers' }, label: 'Customers', needs: 'users.view' },
+    ],
+  },
+  {
+    title: 'Finance',
+    items: [{ route: { page: 'finance' }, label: 'Money', needs: 'money.view' }],
+  },
   {
     title: 'Engineering',
     items: [{ route: { page: 'engineering' }, label: 'System health', needs: 'logs.view' }],
@@ -36,8 +58,9 @@ const SECTIONS: { title?: string; items: NavItem[] }[] = [
   },
 ];
 
-/** Job detail belongs to Jobs in the menu. */
-const sectionOf = (route: Route) => (route.page === 'job' ? 'jobs' : route.page);
+/** Job detail belongs to Jobs in the menu; a person to Customers. */
+const sectionOf = (route: Route) =>
+  route.page === 'job' ? 'jobs' : route.page === 'person' ? 'customers' : route.page;
 
 export function App() {
   // undefined: still checking for a session; null: signed out.
@@ -136,13 +159,23 @@ function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }
     case 'jobs':
       return can('jobs.view') ? <Jobs key={href(route)} route={route} /> : <NotAllowed />;
     case 'job':
-      return can('jobs.view') ? <JobDetail key={route.id} id={route.id} /> : <NotAllowed />;
+      return can('jobs.view') ? <JobDetail key={route.id} id={route.id} can={can} /> : <NotAllowed />;
     case 'engineering':
       return can('logs.view') ? <Engineering can={can} /> : <NotAllowed />;
     case 'settings':
       return can('settings.edit') ? <Settings /> : <NotAllowed />;
     case 'catalog':
       return can('catalog.edit') ? <Catalog /> : <NotAllowed />;
+    case 'disputes':
+      return can('jobs.view') ? <Disputes /> : <NotAllowed />;
+    case 'customers':
+      return can('users.view') ? <Customers key={href(route)} route={route} /> : <NotAllowed />;
+    case 'mechanics':
+      return can('users.view') ? <Mechanics key={href(route)} route={route} /> : <NotAllowed />;
+    case 'person':
+      return can('users.view') ? <Person key={route.id} id={route.id} can={can} /> : <NotAllowed />;
+    case 'finance':
+      return can('money.view') ? <Finance /> : <NotAllowed />;
     case 'audit':
       return can('logs.view') ? <AuditLog /> : <NotAllowed />;
     default:

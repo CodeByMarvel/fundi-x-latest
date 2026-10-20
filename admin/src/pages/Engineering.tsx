@@ -3,6 +3,7 @@ import { api, type Health, type Incident, type Permission, type Timer } from '..
 import { JobLink } from '../components/JobLink';
 import { ReasonForm } from '../components/ReasonForm';
 import { ago, duration, humanize, when } from '../format';
+import type { RequestLog, SystemInfo } from '../types';
 import { useEvery } from '../useEvery';
 
 const KIND: Record<Incident['kind'], string> = {
@@ -111,7 +112,195 @@ export function Engineering({ can }: { can: (p: Permission) => boolean }) {
           <IncidentRow key={i.id} incident={i} canResolve={can('incidents.resolve')} onDone={load} />
         ))}
       </section>
+
+      <RecentRequests />
+      <AllTimers />
+      <System />
     </>
+  );
+}
+
+type RequestFilter = 'all' | 'errors' | 'server_errors' | 'slow';
+
+const REQUEST_FILTERS: { id: RequestFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'errors', label: 'Refused or failed' },
+  { id: 'server_errors', label: 'Server errors' },
+  { id: 'slow', label: 'Slow (1 s+)' },
+];
+
+/** The last few hundred requests this server answered, newest first. */
+function RecentRequests() {
+  const [filter, setFilter] = useState<RequestFilter>('errors');
+  const [data, setData] = useState<RequestLog | null>(null);
+  const load = useCallback(() => {
+    api<RequestLog>(`/requests?filter=${filter}`).then(setData, () => {});
+  }, [filter]);
+  useEffect(load, [load]);
+  useEvery(load, 30_000);
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Recent requests</h2>
+        <div className="tabs">
+          {REQUEST_FILTERS.map(f => (
+            <button key={f.id} className={f.id === filter ? 'tab active' : 'tab'} onClick={() => setFilter(f.id)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {data && (
+        <p className="muted small">
+          {data.totals.seen} requests since this server started (kept in memory, newest 500) ·{' '}
+          {data.totals.errors} refused or failed · {data.totals.serverErrors} server errors · slowest{' '}
+          {data.totals.slowestMs} ms. 4xx answers are usually the app being refused on purpose
+          (wrong step, no permission); 5xx are bugs and also appear as incidents.
+        </p>
+      )}
+      {data?.requests.length === 0 && <p className="muted">None. ✓</p>}
+      {!!data?.requests.length && (
+        <div className="table-wrap">
+          <table>
+            <tbody>
+              {data.requests.map(r => (
+                <tr key={r.requestId} className={r.status >= 500 ? 'warn' : ''}>
+                  <td className="nowrap muted small">{ago(r.at)}</td>
+                  <td className="mono small">
+                    {r.method} {r.route ?? r.path}
+                  </td>
+                  <td>
+                    <span className={r.status >= 500 ? 'badge bad' : r.status >= 400 ? 'badge wait' : 'badge done'}>
+                      {r.status}
+                    </span>
+                  </td>
+                  <td className="num small">{r.ms} ms</td>
+                  <td className="small">{r.who ?? <span className="muted">signed out</span>}</td>
+                  <td className="mono small muted">{r.requestId}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Every timer (newest due first): what the server will do next, and what it did. */
+function AllTimers() {
+  const [status, setStatus] = useState<'' | Timer['status']>('PENDING');
+  const [rows, setRows] = useState<Timer[] | null>(null);
+  useEffect(() => {
+    api<Timer[]>(`/timers${status ? `?status=${status}` : ''}`).then(setRows, () => {});
+  }, [status]);
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>Timers</h2>
+        <select value={status} onChange={e => setStatus(e.target.value as '' | Timer['status'])} aria-label="Timer status">
+          <option value="PENDING">Waiting</option>
+          <option value="DONE">Done</option>
+          <option value="FAILED">Failed</option>
+          <option value="">All</option>
+        </select>
+      </div>
+      {rows?.length === 0 && <p className="muted">None.</p>}
+      {!!rows?.length && (
+        <div className="table-wrap">
+          <table>
+            <tbody>
+              {rows.map(t => (
+                <tr key={t.id} className={t.status === 'FAILED' ? 'warn' : ''}>
+                  <td>{humanize(t.kind)}</td>
+                  <td>
+                    <JobLink id={t.jobId} />
+                  </td>
+                  <td>{humanize(t.status)}</td>
+                  <td className="nowrap">due {when(t.dueAt)}</td>
+                  <td className="muted small">{t.lastError ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const FEATURES: Record<string, { label: string; inProduction: boolean }> = {
+  googleSignIn: { label: 'Google sign-in (app)', inProduction: true },
+  appleSignIn: { label: 'Apple sign-in (app)', inProduction: true },
+  adminDevSignIn: { label: 'Admin development sign-in', inProduction: false },
+  devUserHeader: { label: 'Development user header (tests, demo)', inProduction: false },
+  simulatedMpesa: { label: 'Simulated M-Pesa phone', inProduction: false },
+};
+
+/** What's running. Switches only: secrets are never sent to the portal. */
+function System() {
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  useEffect(() => {
+    api<SystemInfo>('/system').then(setInfo, () => {});
+  }, []);
+  if (!info) {
+    return null;
+  }
+  return (
+    <section className="panel">
+      <h2>System</h2>
+      <div className="grid-2">
+        <dl>
+          <dt>Environment</dt>
+          <dd>{info.server.environment}</dd>
+          <dt>Node.js</dt>
+          <dd>{info.server.node}</dd>
+          <dt>Started</dt>
+          <dd>{when(info.server.startedAt)}</dd>
+          <dt>Release</dt>
+          <dd className="mono">{info.server.commit ?? 'not set (COMMIT_SHA)'}</dd>
+          <dt>Database</dt>
+          <dd>
+            {info.database.version} · {(info.database.bytes / 1_048_576).toFixed(1)} MB
+          </dd>
+          <dt>Migrations</dt>
+          <dd>
+            {info.database.migrations
+              ? `${info.database.migrations.count} applied${info.database.migrations.lastAt ? `, last ${when(info.database.migrations.lastAt)}` : ''}`
+              : 'unknown'}
+          </dd>
+        </dl>
+        <div>
+          <h3 className="small">Switches</h3>
+          <ul className="activity">
+            {Object.entries(info.features).map(([key, on]) => {
+              const meta = FEATURES[key];
+              const wrong = info.server.environment === 'production' && on && meta && !meta.inProduction;
+              return (
+                <li key={key} className={wrong ? 'warn' : ''}>
+                  <span>{meta?.label ?? key}</span>
+                  <span className={on ? (wrong ? 'error' : 'ok') : 'muted'}>{on ? 'on' : 'off'}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+      <details>
+        <summary className="small">Rows per table (approximate)</summary>
+        <table>
+          <tbody>
+            {info.database.tables.map(t => (
+              <tr key={t.table}>
+                <td className="mono small">{t.table}</td>
+                <td className="num">{t.rows.toLocaleString('en-KE')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </section>
   );
 }
 

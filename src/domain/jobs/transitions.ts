@@ -43,23 +43,27 @@ export const TRANSITIONS: TransitionTable = {
     // SYSTEM: nobody could be found.
     CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
+  // From here on, SYSTEM may also cancel: Fundi-X support stepping in
+  // (e.g. the mechanic disappeared), always with a reason and a refund of
+  // whatever is still in escrow (docs/admin-portal.md §3.6).
   OFFERED: {
     ACCEPTED: by('PROVIDER'),
     // The offer was declined (PROVIDER) or expired (SYSTEM): try someone else.
     SEARCHING: by('PROVIDER', 'SYSTEM'),
-    CANCELLED: by('CUSTOMER'),
+    CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
   ACCEPTED: {
     EN_ROUTE: by('PROVIDER'),
-    // Provider withdraws: find someone else, the call-out stays in escrow.
-    SEARCHING: by('PROVIDER'),
-    CANCELLED: by('CUSTOMER'),
+    // Provider withdraws, or support reassigns a provider who isn't
+    // coming: find someone else, the call-out stays in escrow.
+    SEARCHING: by('PROVIDER', 'SYSTEM'),
+    CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
   EN_ROUTE: {
     ARRIVED: by('PROVIDER'),
-    SEARCHING: by('PROVIDER'),
+    SEARCHING: by('PROVIDER', 'SYSTEM'),
     // On time: call-out kept. Late (arrival + grace passed): refunded.
-    CANCELLED: by('CUSTOMER'),
+    CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
   ARRIVED: {
     DIAGNOSING: { actors: ['PROVIDER'], onlyFor: 'QUOTED' },
@@ -68,11 +72,11 @@ export const TRANSITIONS: TransitionTable = {
     SERVICE_PAYMENT_PENDING: { actors: ['PROVIDER'], onlyFor: 'FIXED' },
     // CUSTOMER changes their mind (call-out kept), or PROVIDER reports a
     // no-show after the 15-minute wait.
-    CANCELLED: by('CUSTOMER', 'PROVIDER'),
+    CANCELLED: by('CUSTOMER', 'PROVIDER', 'SYSTEM'),
   },
   DIAGNOSING: {
     QUOTE_SENT: by('PROVIDER'),
-    CANCELLED: by('CUSTOMER'),
+    CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
   QUOTE_SENT: {
     // Customer approves; next they pay it into escrow.
@@ -81,7 +85,7 @@ export const TRANSITIONS: TransitionTable = {
     // DIAGNOSING, the old quote can't be approved.
     DIAGNOSING: by('PROVIDER'),
     // Customer declines the repair. The call-out paid for the visit.
-    CANCELLED: by('CUSTOMER'),
+    CANCELLED: by('CUSTOMER', 'SYSTEM'),
   },
   SERVICE_PAYMENT_PENDING: {
     // Only the payment system can say the money reached escrow.
@@ -92,6 +96,8 @@ export const TRANSITIONS: TransitionTable = {
   },
   IN_PROGRESS: {
     AWAITING_CONFIRMATION: by('PROVIDER'),
+    // Support only: e.g. the mechanic left mid-job.
+    CANCELLED: by('SYSTEM'),
   },
   AWAITING_CONFIRMATION: {
     // Customer confirms, or SYSTEM auto-confirms after 48 h of silence. The

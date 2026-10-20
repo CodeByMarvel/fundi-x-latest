@@ -102,6 +102,8 @@ const CANCELLED_BY: Record<CancellationReason, string> = {
   service_unpaid:
     'The customer didn’t pay the agreed price in time. You keep the call-out.',
   dispute_resolved: 'Support settled the dispute by dividing the payment.',
+  support_cancelled:
+    'Fundi-X support closed this job; the customer was refunded what was still held.',
 };
 
 /** Where the provider had set off or was on site: the call-out is theirs. */

@@ -117,7 +117,12 @@ export type CancellationReason =
   | 'service_unpaid'
   | 'customer_no_show'
   /** Support settled a dispute with a split (see DisputeResolution). */
-  | 'dispute_resolved';
+  | 'dispute_resolved'
+  /**
+   * Fundi-X support stopped the job (e.g. the mechanic disappeared). The
+   * customer gets back everything still in escrow.
+   */
+  | 'support_cancelled';
 
 export type JobCancellation = {
   by: JobActor;

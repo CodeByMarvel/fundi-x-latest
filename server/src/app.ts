@@ -5,6 +5,7 @@ import { appleVerifier } from './accounts/apple';
 import { registerAccountRoutes, type AccountsConfig } from './accounts/routes';
 import { googleVerifier } from './admin/google';
 import { registerAdminRoutes, type AdminConfig } from './admin/routes';
+import { SESSION_COOKIE } from './admin/session';
 import { registerAuth } from './auth';
 import type { Database } from './db/client';
 import { createErrorHandler } from './errors';
@@ -13,6 +14,7 @@ import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
 import { registerPaymentRoutes } from './payments/routes';
 import { registerProviderRoutes } from './providers/routes';
+import { createRequestLog } from './requestLog';
 
 /** Local development: no Google sign-in until GOOGLE_CLIENT_ID is set. */
 const LOCAL_ADMIN: AdminConfig = {
@@ -65,6 +67,23 @@ export function buildApp({
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
   });
+  const requestLog = createRequestLog();
+  app.addHook('onResponse', async (request, reply) => {
+    requestLog.add({
+      requestId: request.id,
+      method: request.method,
+      route: request.routeOptions.url ?? null,
+      path: request.url.split('?')[0],
+      status: reply.statusCode,
+      ms: Math.round(reply.elapsedTime),
+      who: request.caller
+        ? `${request.caller.role.toLowerCase()}:${request.caller.id}`
+        : request.url.startsWith('/admin') && request.cookies?.[SESSION_COOKIE]
+          ? 'staff'
+          : null,
+      at: new Date().toISOString(),
+    });
+  });
   app.setErrorHandler(
     createErrorHandler((error, request) =>
       reportIncident(
@@ -96,6 +115,18 @@ export function buildApp({
   // Inside a plugin so it loads after the rate limiter, which only sees
   // routes added once it is ready.
   app.register(async scope => registerAccountRoutes(scope, db, { ...accounts, signInPerMinute }));
-  registerAdminRoutes(app, db, { ...admin, signInPerMinute });
+  registerAdminRoutes(app, db, {
+    ...admin,
+    signInPerMinute,
+    requestLog,
+    // On/off switches only, for the Engineering page: never a secret.
+    features: {
+      googleSignIn: !!accounts.googleClientId,
+      appleSignIn: accounts.appleEnabled,
+      adminDevSignIn: admin.devSignIn,
+      devUserHeader: allowDevHeader,
+      simulatedMpesa: simulatePayments,
+    },
+  });
   return app;
 }

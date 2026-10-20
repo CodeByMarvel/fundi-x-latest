@@ -64,6 +64,20 @@
       "when": 1792528483157,
       "tag": "0008_catalog_and_parts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792529524484,
+      "tag": "0009_support_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792529606219,
+      "tag": "0010_provider_verification",
+      "breakpoints": true
     }
   ]
 }

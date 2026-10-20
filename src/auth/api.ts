@@ -19,6 +19,8 @@ export type Account = {
     businessName: string | null;
     specialty: string;
     verification: 'PENDING' | 'VERIFIED' | 'REJECTED';
+    /** Fundi-X's words with the decision, e.g. why it was rejected. */
+    verificationNote?: string | null;
   } | null;
   /** What the account still needs before it can be used. */
   nextStep: 'add_phone' | 'provider_profile' | null;

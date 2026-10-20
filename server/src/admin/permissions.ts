@@ -8,6 +8,7 @@ import type { StaffRole } from '../db/schema';
 export const PERMISSIONS = [
   'jobs.view',
   'jobs.cancel',
+  'disputes.resolve',
   'money.view',
   'money.refund',
   'users.view',
