@@ -2,9 +2,15 @@ import type { Cents } from '../money';
 
 /**
  * What money is for. CALL_OUT: transport and inspection, paid before
- * dispatch. SERVICE: the work itself (approved quotes), paid at the end.
+ * dispatch. SERVICE: the work itself (approved quotes). PARTS: on
+ * fixed-price jobs, the optional parts the mechanic brings; paid together
+ * with the service but released to the mechanic straight away, so they
+ * can buy them (docs/job-flow.md §8).
  */
-export type MoneyPurpose = 'CALL_OUT' | 'SERVICE';
+export type MoneyPurpose = 'CALL_OUT' | 'SERVICE' | 'PARTS';
+
+/** What one M-Pesa prompt can be for. Parts ride along with SERVICE. */
+export type PaymentPurpose = Exclude<MoneyPurpose, 'PARTS'>;
 
 /** Something the customer owes. Created by the backend, never edited. */
 export type Charge = {
@@ -33,7 +39,12 @@ export type PaymentFailureReason =
 export type Payment = {
   id: string;
   jobId: string;
-  purpose: MoneyPurpose;
+  purpose: PaymentPurpose;
+  /**
+   * SERVICE payments on fixed-price jobs: how much of `amount` is for the
+   * parts. That part leaves escrow as soon as the payment succeeds.
+   */
+  partsAmount?: Cents;
   /** Set when paying for an additional quote (approve-and-pay). */
   quoteId?: string;
   method: 'MPESA';

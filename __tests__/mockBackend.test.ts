@@ -17,7 +17,7 @@ import {
 import { CALL_OUT_FEE, calculateEstimate } from '../src/domain/pricing/engine';
 import { BOT_TIMINGS } from '../src/data/mock/providerBots';
 import { balanceDue } from '../src/domain/billing/ledger';
-import { PaymentError } from '../src/domain/billing/types';
+import { MoneyPurpose, PaymentError } from '../src/domain/billing/types';
 import {
   AUTO_CONFIRM_MS,
   CALL_OUT_PAYMENT_WINDOW_MS,
@@ -192,7 +192,7 @@ async function awaitingConfirmation() {
 const status = (b: MockBackend, jobId: string) =>
   b.jobs.getJobSnapshot(jobId)?.status;
 
-const due = (b: MockBackend, jobId: string, purpose: 'CALL_OUT' | 'SERVICE') =>
+const due = (b: MockBackend, jobId: string, purpose: MoneyPurpose) =>
   balanceDue(
     b.billing.getChargesSnapshot(),
     b.billing.getPaymentsSnapshot(),
@@ -226,15 +226,21 @@ describe('pricing', () => {
     });
   });
 
-  it('prices catalog maintenance as FIXED, with service codes', () => {
+  it('prices catalog maintenance as FIXED: labour, plus optional parts', () => {
     const estimate = calculateEstimate(SERVICE);
     expect(estimate.pricingMode).toBe('FIXED');
-    expect(estimate.fixedService?.total).toBe(kes(3800 + 900 + 1000));
+    // A Fielder is a small car: labour KSh 800, 4 L oil + filter.
+    expect(estimate.fixedService?.vehicleClass).toBe('SMALL');
     expect(estimate.fixedService?.items.map(i => i.serviceCode)).toEqual([
-      'ENGINE_OIL',
-      'OIL_FILTER',
       'LABOUR_OIL_CHANGE',
     ]);
+    expect(estimate.fixedService?.parts.map(i => i.serviceCode)).toEqual([
+      'ENGINE_OIL',
+      'OIL_FILTER',
+    ]);
+    expect(estimate.fixedService?.total).toBe(kes(800 + 4 * 1000 + 900));
+    const own = calculateEstimate({ ...SERVICE, partsOption: 'OWN' });
+    expect(own.fixedService?.total).toBe(kes(800));
   });
 
   it('falls back to QUOTED for services the catalog cannot price', () => {
@@ -258,7 +264,11 @@ describe('booking and the call-out', () => {
     const job = await book(b, SERVICE);
     const quote = b.jobs.getQuoteSnapshot(job.baseQuoteId!)!;
     expect(quote).toMatchObject({ issuedBy: 'FUNDI_X', status: 'APPROVED' });
-    expect(due(b, job.id, 'SERVICE')).toBe(quote.total);
+    // Labour and parts are charged separately: parts are paid out sooner.
+    expect(due(b, job.id, 'SERVICE') + due(b, job.id, 'PARTS')).toBe(
+      quote.total,
+    );
+    expect(due(b, job.id, 'PARTS')).toBe(kes(4 * 1000 + 900));
   });
 
   it('refuses a booking at an outdated price', async () => {

@@ -12,7 +12,12 @@ export type Vehicle = {
   make: string;
   model: string;
   year?: number;
+  /** Engine size, if the customer knows it; decides the price class. */
+  engineCc?: number;
+  fuel?: Fuel;
 };
+
+export type Fuel = 'petrol' | 'diesel' | 'hybrid' | 'electric';
 
 export type Drivability = 'safe' | 'caution' | 'cannot' | 'unsure';
 

@@ -19,6 +19,8 @@ export const requestDetailsProperties = {
       make: text(60),
       model: text(60),
       year: { type: 'integer', minimum: 1950, maximum: 2100 },
+      engineCc: { type: 'integer', minimum: 50, maximum: 10000 },
+      fuel: { enum: ['petrol', 'diesel', 'hybrid', 'electric'] },
     },
   },
   answers: {
@@ -47,6 +49,7 @@ export const requestDetailsProperties = {
     },
   },
   urgency: { enum: ['now', 'today', 'scheduled'] },
+  partsOption: { enum: ['MECHANIC', 'OWN'] },
   scheduledFor: {
     type: 'object',
     additionalProperties: false,

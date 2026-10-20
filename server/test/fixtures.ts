@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { JobRequestDetails } from '../../src/domain/jobs/types';
+import type { Catalog } from '../../src/domain/pricing/catalog';
 import { calculateEstimate } from '../../src/domain/pricing/engine';
 import type { Database } from '../src/db/client';
 import { providers, users } from '../src/db/schema';
@@ -38,8 +39,8 @@ export const OTIENO = { 'x-dev-user': 'customer:otieno' };
 export const BRIAN = { 'x-dev-user': 'provider:p1' };
 
 /** The booking body the app sends: details + the price the customer saw. */
-export function booking(details: JobRequestDetails, callOutFee?: number) {
-  const estimate = calculateEstimate(details, callOutFee);
+export function booking(details: JobRequestDetails, callOutFee?: number, catalog?: Catalog) {
+  const estimate = calculateEstimate(details, callOutFee, catalog);
   return {
     ...details,
     acceptedPrice: {
@@ -57,7 +58,7 @@ export function booking(details: JobRequestDetails, callOutFee?: number) {
  */
 export async function resetTables(db: Database) {
   await db.execute(
-    sql`TRUNCATE app_sessions, incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_matching, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers`,
+    sql`TRUNCATE app_sessions, incidents, audit_log, staff_sessions, staff, users, providers, settings, jobs, job_matching, job_events, charges, payments, refunds, releases, quotes, reliability_events, timers, catalog_versions`,
   );
   const at = new Date();
   const account = { status: 'ACTIVE' as const, createdAt: at, updatedAt: at };

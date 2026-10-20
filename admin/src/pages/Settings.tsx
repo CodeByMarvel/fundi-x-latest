@@ -30,13 +30,15 @@ export function Settings() {
 }
 
 /**
- * One whole-number setting. Money is edited in shillings and stored in
- * cents; everything else is stored as typed. Saving asks why.
+ * One number setting. Money is edited in shillings and stored in cents,
+ * percentages are stored in basis points; everything else is stored as
+ * typed. Saving asks why.
  */
 function NumberSetting({ row, onSaved }: { row: SettingRow; onSaved: () => void }) {
   const meta = SETTINGS[row.key];
-  const isMoney = meta?.kind !== 'number';
-  const scale = isMoney ? 100 : 1;
+  const isMoney = meta?.kind === 'money';
+  const isPercent = meta?.kind === 'percent';
+  const scale = isMoney || isPercent ? 100 : 1;
   const current = (row.value as number) / scale;
   const [draft, setDraft] = useState(String(current));
   const [confirming, setConfirming] = useState(false);
@@ -69,16 +71,23 @@ function NumberSetting({ row, onSaved }: { row: SettingRow; onSaved: () => void 
         <label className="money-input">
           {isMoney && <span>KSh</span>}
           <input
-            inputMode="numeric"
+            inputMode={isPercent ? 'decimal' : 'numeric'}
             value={draft}
             disabled={confirming}
             onChange={e => {
-              setDraft(e.target.value.replace(/[^\d]/g, ''));
+              setDraft(e.target.value.replace(isPercent ? /[^\d.]/g : /[^\d]/g, ''));
               setSaved(false);
             }}
-            aria-label={isMoney ? `${label} in shillings` : `${label} in ${meta.unit}`}
+            aria-label={
+              isMoney
+                ? `${label} in shillings`
+                : isPercent
+                  ? `${label} in percent`
+                  : `${label} in ${meta.kind === 'number' ? meta.unit : ''}`
+            }
           />
           {meta?.kind === 'number' && <span>{meta.unit}</span>}
+          {isPercent && <span>%</span>}
         </label>
         {!confirming && (
           <button className="primary" disabled={!changed}>

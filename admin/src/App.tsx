@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, SIGNED_OUT_EVENT, type Me, type Permission } from './api';
 import { AuditLog } from './pages/AuditLog';
+import { Catalog } from './pages/Catalog';
 import { Dashboard } from './pages/Dashboard';
 import { Engineering } from './pages/Engineering';
 import { JobDetail } from './pages/JobDetail';
@@ -24,7 +25,10 @@ const SECTIONS: { title?: string; items: NavItem[] }[] = [
   },
   {
     title: 'Configuration',
-    items: [{ route: { page: 'settings' }, label: 'Settings', needs: 'settings.edit' }],
+    items: [
+      { route: { page: 'catalog' }, label: 'Catalog', needs: 'catalog.edit' },
+      { route: { page: 'settings' }, label: 'Settings', needs: 'settings.edit' },
+    ],
   },
   {
     title: 'Security',
@@ -137,6 +141,8 @@ function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }
       return can('logs.view') ? <Engineering can={can} /> : <NotAllowed />;
     case 'settings':
       return can('settings.edit') ? <Settings /> : <NotAllowed />;
+    case 'catalog':
+      return can('catalog.edit') ? <Catalog /> : <NotAllowed />;
     case 'audit':
       return can('logs.view') ? <AuditLog /> : <NotAllowed />;
     default:

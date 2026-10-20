@@ -21,6 +21,7 @@ import {
   useQuote,
 } from '../../data/useJob';
 import { formatRate } from '../../domain/billing/commission';
+import type { MoneyPurpose } from '../../domain/billing/types';
 import { NO_SHOW_WAIT_MS } from '../../domain/jobs/rules';
 import { canTransition } from '../../domain/jobs/transitions';
 import { Job } from '../../domain/jobs/types';
@@ -472,7 +473,13 @@ function AdditionalQuoteCard({ quote }: { quote: Quote }) {
   );
 }
 
-/** The payout recorded when the job ended, line by line. */
+const PAYOUT_LABEL: Record<MoneyPurpose, string> = {
+  CALL_OUT: 'Call-out',
+  SERVICE: 'Labour',
+  PARTS: 'Parts',
+};
+
+/** What this job paid out, line by line. */
 function EarningsCard({ jobId }: { jobId: string }) {
   const { release } = useJobLedger(jobId);
   if (!release) {
@@ -483,18 +490,19 @@ function EarningsCard({ jobId }: { jobId: string }) {
     <Card title="Your earnings">
       {release.lines.map(line => (
         <Line
-          key={line.paymentId}
-          label={line.purpose === 'CALL_OUT' ? 'Call-out' : 'Service'}
+          key={`${line.paymentId}-${line.purpose}`}
+          label={`${PAYOUT_LABEL[line.purpose]} (fee ${formatRate(line.purpose)})`}
           value={formatKes(line.gross)}
         />
       ))}
       <Line
-        label={`Fundi-X fee (${formatRate('SERVICE')})`}
+        label="Fundi-X fees"
         value={`− ${formatKes(release.commission)}`}
       />
       <Line label="You earn" value={formatKes(release.net)} strong />
       <Text style={textStyles.secondary}>
-        Released from escrow when the job ended.
+        Parts money is paid out when the customer pays; the rest when the
+        job ends.
       </Text>
     </Card>
   );

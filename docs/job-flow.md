@@ -76,15 +76,42 @@ to the apps.
   further than the maximum ring is ever offered the job.
 - Later: per-area overrides keyed by a coarse H3 parent cell.
 
-### 3.2 Fixed-price catalog
+### 3.2 Fixed-price catalog (maintenance pricing, agreed 2026-10-20)
 
-- Tables: service packages → package items, part prices, labour rates,
-  vehicle adjustments; every price has `effective_from`.
-- Inputs: vehicle (make, model, year, engine), service package, location zone.
-- Output: line items with standard **service codes** and a total.
-- Temporary by design: Fundi-X prices maintenance only until real job data
-  supports a better model. The engine sits behind one interface
-  (`PricingService`) so it can be replaced without touching the job flow.
+Fundi-X prices **labour**; parts are an optional add-on.
+
+- **Vehicle classes** (labour and parts are priced per class):
+
+  | Class | Rule |
+  |---|---|
+  | `SMALL` | up to 1,500 cc |
+  | `MEDIUM` | 1,501–2,000 cc, and any car we can't classify |
+  | `LARGE` | 2,001–3,000 cc |
+  | `FOUR_X4` | over 3,000 cc, or diesel |
+  | `PREMIUM` | a premium make (Mercedes-Benz, BMW, Audi, Lexus…), whatever the engine |
+
+  The class comes from the make first, then the engine size and fuel the
+  customer gave, then the model's usual engine from a model list staff
+  maintain. `classify()` in `src/domain/pricing/catalog.ts`.
+- **Packages** (one per service category) are lines with a price per
+  class. Lines of kind `PART` are the **optional parts**; every other line
+  (labour, consumables) is always included. A class with no price for a
+  line doesn't need it; a package with nothing for a class is `QUOTED` for
+  that vehicle. An inactive package is `QUOTED`.
+- **Parts option**, chosen on the review screen **before the call-out is
+  paid**: `MECHANIC` (the mechanic brings the parts; their price is added)
+  or `OWN` (the customer has them; labour only). Stored on the job as
+  `partsOption`.
+- **Starting prices** are set about 5% above what mechanics pay for parts,
+  so the parts commission doesn't leave them short.
+- **The catalog lives in the database** (`catalog_versions`): each save in
+  the admin portal is a new version with who and why; the latest is live;
+  with none, `DEFAULT_CATALOG` applies. Old versions can be restored. A
+  booked job keeps its price: its Fundi-X quote holds a copy of the lines.
+- The engine sits behind one interface (`PricingService`) so it can be
+  replaced by a data-driven model later without touching the job flow.
+- **Repairs (`QUOTED`) are unchanged:** the mechanic's quote includes parts,
+  and the service commission applies to all of it. Worth revisiting.
 
 ### 3.3 Quotes
 
@@ -296,8 +323,16 @@ function (`settlementFor`) decides; the backend records the result.
 | `dispute_resolved` | Per resolution (§9) | Per resolution (§9) |
 
 - **Release** = paid to the assigned provider, minus commission.
-- **Commission (CONFIGURABLE):** per money purpose (`CALL_OUT`, `SERVICE`) in
-  basis points; default 2000 bp (20%) for both. Taken only on released money.
+- **Commission (CONFIGURABLE, admin Settings):** per money purpose in basis
+  points: `CALL_OUT` 2000 (20%), `SERVICE` 2000 (20%, labour and quoted
+  work), `PARTS` 500 (5%, fixed-price parts the mechanic buys). Taken only
+  on released money.
+- **Parts are released early.** On a fixed-price job with `partsOption:
+  MECHANIC`, the service payment carries the parts (`Payment.partsAmount`).
+  When it succeeds the parts money is released to the mechanic at once (a
+  `PARTS` release line) so they can buy the parts; the rest stays in
+  escrow. Settlement and disputes only move what is still in escrow, so a
+  dispute on such a job covers the call-out and labour, not the parts.
 - **Unpaid charges on a closed job are void** (principle 8). There are no
   collections in v1.0.
 - **Money that arrives after a job closed** (e.g. the customer completes the
@@ -371,8 +406,8 @@ DisputeResolution
 
 | Record | Created when | Key fields |
 |---|---|---|
-| `Charge` | Call-out at booking; service when a quote is approved (FIXED: at booking) | purpose, amount, quoteId |
-| `Payment` | Customer starts an STK push | purpose, phone, amount, status, M-Pesa `CheckoutRequestID`, receipt |
+| `Charge` | Call-out at booking; service when a quote is approved (FIXED: at booking, plus a `PARTS` charge if the mechanic brings them) | purpose, amount, quoteId |
+| `Payment` | Customer starts an STK push | purpose, phone, amount (of which `partsAmount`), status, M-Pesa `CheckoutRequestID`, receipt |
 | `Refund` | Settlement or late payment | paymentId, amount, reason, status |
 | `Release` | Settlement | providerId, lines (per payment: gross, commission), net |
 
@@ -452,7 +487,12 @@ lower matching priority; severe → temporary suspension pending review.
 - Support SLA for disputes.
 - What happens when a FIXED job's vehicle doesn't match the booking (e.g.
   different engine): re-price on site, switch to QUOTED, or cancel with the
-  call-out kept.
+  call-out kept. Proposed (2026-10-20): the mechanic reports the real class,
+  the price is recalculated from the catalog, and the customer approves it
+  or cancels with the call-out kept. Not built yet.
+- "I'll buy my own parts" but the parts are missing or wrong on arrival:
+  for now the mechanic adds them as an additional quote, or the customer
+  cancels (call-out kept).
 
 ---
 

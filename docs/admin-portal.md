@@ -75,7 +75,8 @@ ADMIN PORTAL
 │   ├── System health    database, timers, worker              ✅ built
 │   └── Incidents        errors and failures, grouped          ✅ built
 ├── Configuration
-│   └── Settings         call-out fee (more later)             ✅ built
+│   ├── Catalog          maintenance prices, models, history   ✅ built
+│   └── Settings         call-out fee, matching, commission    ✅ built
 └── Security
     ├── Audit log        who, what, when, why                  ✅ built
     └── Staff & roles    add people, assign roles              ⏳ when hiring
@@ -127,6 +128,22 @@ editable from the portal yet; when they are, they will need a second
 person's approval (§6).
 
 ---
+
+### 3.5 Catalog
+
+The fixed prices for maintenance (job-flow.md §3.2), edited by people with
+`catalog.edit`.
+
+- **Packages:** each line with a price per vehicle class, parts marked
+  optional, and what the customer pays per class with and without parts.
+  Add, edit, or switch a package off (it's then quoted by the mechanic).
+- **Vehicle models:** each model's usual engine size and fuel, used when
+  the customer doesn't give theirs.
+- **Premium makes.**
+- **Price check:** what a given car pays for a package right now.
+- **History:** every saved version with who, when and why; any version can
+  be restored. A save made from an outdated version is refused, so two
+  people editing at once can't silently undo each other.
 
 ## 4. The job state machine, as the portal shows it
 

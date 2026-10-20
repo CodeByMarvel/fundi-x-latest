@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm';
-import { commissionOn } from '../../../src/domain/billing/commission';
+import { releaseLine } from '../../../src/domain/billing/commission';
 import { settlementFor } from '../../../src/domain/billing/ledger';
 import {
   CALL_OUT_PAYMENT_WINDOW_MS,
@@ -35,7 +35,8 @@ import {
 } from '../db/schema';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
-import { getSetting } from '../settings';
+import { liveCatalog } from '../catalog/store';
+import { commissionRates, getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
 
@@ -108,10 +109,12 @@ export async function createJob(
   const estimate = calculateEstimate(
     details,
     await getSetting(db, 'call_out_fee'),
+    (await liveCatalog(db)).catalog,
   );
+  const fixed = estimate.fixedService;
   if (
     estimate.callOut !== acceptedPrice.callOut ||
-    estimate.fixedService?.total !== acceptedPrice.fixedServiceTotal
+    fixed?.total !== acceptedPrice.fixedServiceTotal
   ) {
     throw new PriceChangedError();
   }
@@ -119,6 +122,8 @@ export async function createJob(
   const at = new Date();
   const job: Job = {
     ...details,
+    // Settled by the estimate: only a fixed-price job with parts has a choice.
+    partsOption: fixed && fixed.parts.length > 0 ? fixed.partsOption : undefined,
     id: newId('job'),
     customerId: caller.id,
     pricingMode: estimate.pricingMode,
@@ -129,7 +134,7 @@ export async function createJob(
 
   await db.transaction(async tx => {
     let fixedQuoteId: string | undefined;
-    if (estimate.fixedService) {
+    if (fixed) {
       // The customer accepted this price when booking.
       fixedQuoteId = newId('quote');
       job.baseQuoteId = fixedQuoteId;
@@ -143,9 +148,11 @@ export async function createJob(
       description: 'Call-out (transport & inspection)',
       createdAt: at,
     });
-    if (estimate.fixedService && fixedQuoteId) {
-      const items = buildQuoteItems(estimate.fixedService.items, () =>
-        newId('item'),
+    if (fixed && fixedQuoteId) {
+      const withParts = fixed.partsOption === 'MECHANIC';
+      const items = buildQuoteItems(
+        [...fixed.items, ...(withParts ? fixed.parts : [])],
+        () => newId('item'),
       );
       await tx.insert(quotes).values({
         id: fixedQuoteId,
@@ -156,7 +163,7 @@ export async function createJob(
         status: 'APPROVED',
         items,
         total: sumItems(items),
-        note: estimate.fixedService.packageName,
+        note: fixed.packageName,
         createdAt: at,
         respondedAt: at,
       });
@@ -164,11 +171,24 @@ export async function createJob(
         id: newId('chg'),
         jobId: job.id,
         purpose: 'SERVICE',
-        amount: sumItems(items),
+        amount: fixed.serviceTotal,
         description: 'Agreed work',
         quoteId: fixedQuoteId,
         createdAt: at,
       });
+      // Parts are their own charge: their money goes to the mechanic as
+      // soon as it's paid, with a smaller commission.
+      if (withParts && fixed.partsTotal > 0) {
+        await tx.insert(charges).values({
+          id: newId('chg'),
+          jobId: job.id,
+          purpose: 'PARTS',
+          amount: fixed.partsTotal,
+          description: 'Parts',
+          quoteId: fixedQuoteId,
+          createdAt: at,
+        });
+      }
     }
     // Saved with the booking: if the booking exists, so does its deadline.
     await scheduleTimer(tx, {
@@ -185,7 +205,9 @@ export async function createJob(
       actor: 'CUSTOMER',
       metadata: {
         callOut: estimate.callOut,
-        fixedServiceTotal: estimate.fixedService?.total ?? null,
+        fixedServiceTotal: fixed?.total ?? null,
+        vehicleClass: fixed?.vehicleClass ?? null,
+        partsOption: job.partsOption ?? null,
       },
       createdAt: at,
     });
@@ -287,6 +309,7 @@ export async function settle(tx: Tx, job: Job, at: Date) {
     await tx.select().from(payments).where(eq(payments.jobId, job.id))
   ).map(toPayment);
   const { refund, release } = settlementFor(job, paid);
+  const rates = await commissionRates(tx);
 
   for (const move of refund) {
     await tx.insert(refunds).values({
@@ -302,12 +325,9 @@ export async function settle(tx: Tx, job: Job, at: Date) {
     });
   }
   if (release.length > 0 && job.providerId) {
-    const lines = release.map(({ payment, amount }) => ({
-      paymentId: payment.id,
-      purpose: payment.purpose,
-      gross: amount,
-      commission: commissionOn(amount, payment.purpose),
-    }));
+    const lines = release.map(({ payment, amount }) =>
+      releaseLine(payment.id, payment.purpose, amount, rates),
+    );
     const gross = lines.reduce((s, l) => s + l.gross, 0);
     const commission = lines.reduce((s, l) => s + l.commission, 0);
     await tx.insert(releases).values({

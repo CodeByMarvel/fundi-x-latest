@@ -1,6 +1,7 @@
 import { Car, Plus } from 'lucide-react-native';
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { Fuel } from '../../../domain/jobs/request';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { colors } from '../../../shared/theme/colors';
 import { vehicleName } from '../../data/mockVehicles';
@@ -62,11 +63,14 @@ function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
+  const [engineCc, setEngineCc] = useState('');
+  const [fuel, setFuel] = useState<Fuel>();
 
   const valid = registration.trim() && make.trim() && model.trim();
 
   const save = () => {
     const parsedYear = parseInt(year, 10);
+    const parsedCc = parseInt(engineCc, 10);
     onSave({
       // TODO: replace with the id the backend returns.
       id: `local-${Date.now()}`,
@@ -74,6 +78,8 @@ function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
       make: make.trim(),
       model: model.trim(),
       year: Number.isNaN(parsedYear) ? undefined : parsedYear,
+      ...(parsedCc >= 50 && parsedCc <= 10000 && { engineCc: parsedCc }),
+      ...(fuel && { fuel }),
     });
   };
 
@@ -121,9 +127,46 @@ function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
         keyboardType="number-pad"
         maxLength={4}
       />
+      <Field
+        label="Engine size in cc (optional)"
+        value={engineCc}
+        onChangeText={text => setEngineCc(text.replace(/[^\d]/g, ''))}
+        placeholder="e.g. 1500"
+        keyboardType="number-pad"
+        maxLength={5}
+      />
+      <View>
+        <Text style={styles.label}>Fuel (optional)</Text>
+        <View style={styles.chips}>
+          {FUELS.map(f => (
+            <Pressable
+              key={f.id}
+              onPress={() => setFuel(fuel === f.id ? undefined : f.id)}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: fuel === f.id }}
+              style={[styles.chip, fuel === f.id && styles.chipSelected]}
+            >
+              <Text style={[styles.chipText, fuel === f.id && styles.chipTextSelected]}>
+                {f.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          Service prices depend on the engine. Not sure? Leave it: we use your
+          model's usual engine.
+        </Text>
+      </View>
     </StepLayout>
   );
 }
+
+const FUELS: { id: Fuel; label: string }[] = [
+  { id: 'petrol', label: 'Petrol' },
+  { id: 'diesel', label: 'Diesel' },
+  { id: 'hybrid', label: 'Hybrid' },
+  { id: 'electric', label: 'Electric' },
+];
 
 type FieldProps = React.ComponentProps<typeof TextInput> & { label: string };
 
@@ -156,5 +199,36 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     fontSize: 16,
     color: colors.textDark,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.divider,
+    backgroundColor: colors.surface,
+  },
+  chipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySurface,
+  },
+  chipText: {
+    fontSize: 15,
+    color: colors.textDark,
+  },
+  chipTextSelected: {
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  hint: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textGrey,
   },
 });

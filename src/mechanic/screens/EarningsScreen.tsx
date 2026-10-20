@@ -56,7 +56,8 @@ export function EarningsScreen() {
       </View>
       <Text style={styles.note}>
         Customers pay into Fundi-X escrow. When a job ends, it’s released to you
-        minus a {formatRate('SERVICE')} fee.
+        minus a {formatRate('SERVICE')} fee ({formatRate('PARTS')} on parts you
+        buy for the customer, paid out as soon as they pay).
       </Text>
 
       {releases.length === 0 ? (

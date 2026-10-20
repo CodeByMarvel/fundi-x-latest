@@ -770,3 +770,52 @@ dl.money dd {
   width: 100%;
   padding: 11px 18px;
 }
+
+/* Catalog */
+.cell-input {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  width: 84px;
+  text-align: right;
+}
+.cell-input.wide {
+  width: 100%;
+  min-width: 140px;
+  text-align: left;
+}
+.cell-input.qty {
+  width: 44px;
+}
+.cell-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.cell-input:disabled {
+  opacity: 0.5;
+}
+.price-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.price-grid td {
+  white-space: nowrap;
+}
+.price-grid td:first-child {
+  white-space: normal;
+  min-width: 180px;
+}
+tr.totals td {
+  background: var(--bg);
+}
+.add-line {
+  margin: 4px 0 10px;
+}
+textarea.full {
+  width: 100%;
+  margin-bottom: 10px;
+}

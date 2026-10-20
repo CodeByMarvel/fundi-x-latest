@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { balanceDue, totalPaid, totalRefunded } from '../domain/billing/ledger';
+import type { Release } from '../domain/billing/types';
 import { Contact } from '../domain/jobs/JobRepository';
 import { isTerminalStatus } from '../domain/jobs/transitions';
 import { Job } from '../domain/jobs/types';
@@ -130,6 +131,20 @@ export function useJobLedger(jobId: string) {
       p => p.jobId === jobId && p.status === 'SUCCESS',
     );
     const jobRefunds = refunds.filter(r => r.jobId === jobId);
+    // A fixed-price job with parts is paid out twice: the parts when the
+    // customer pays, the rest when the job ends. Shown as one payout.
+    const jobReleases = releases.filter(r => r.jobId === jobId);
+    const add = (pick: (r: Release) => number) =>
+      jobReleases.reduce((s, r) => s + pick(r), 0);
+    const release: Release | undefined = jobReleases.length
+      ? {
+          ...jobReleases[jobReleases.length - 1],
+          lines: jobReleases.flatMap(r => r.lines),
+          gross: add(r => r.gross),
+          commission: add(r => r.commission),
+          net: add(r => r.net),
+        }
+      : undefined;
     return {
       charges: charges.filter(c => c.jobId === jobId),
       payments: paid,
@@ -137,9 +152,12 @@ export function useJobLedger(jobId: string) {
       /** Every attempt for this job, newest first, whatever its status. */
       attempts: [...payments].reverse().filter(p => p.jobId === jobId),
       refunds: jobRefunds,
-      release: releases.find(r => r.jobId === jobId),
+      release,
       callOutDue: balanceDue(charges, payments, jobId, 'CALL_OUT'),
-      serviceDue: balanceDue(charges, payments, jobId, 'SERVICE'),
+      // Parts are paid in the same M-Pesa prompt as the service.
+      serviceDue:
+        balanceDue(charges, payments, jobId, 'SERVICE') +
+        balanceDue(charges, payments, jobId, 'PARTS'),
       totalPaid: totalPaid(payments, jobId),
       totalRefunded: totalRefunded(refunds, jobId),
     };

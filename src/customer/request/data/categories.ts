@@ -127,6 +127,53 @@ export const CATEGORIES: JobCategory[] = [
   },
 ];
 
-export function getCategory(id: string | undefined) {
-  return CATEGORIES.find(c => c.id === id);
+/**
+ * Fixed-price packages Fundi-X added in the admin portal after this app
+ * version was built: they're offered as services too, with no questions.
+ */
+let addedServices: JobCategory[] = [];
+
+export function setOfferedServices(packages: { id: string; name: string }[]) {
+  addedServices = packages
+    .filter(p => !CATEGORIES.some(c => c.id === p.id))
+    .map(p => ({
+      id: p.id,
+      requestType: 'service',
+      label: p.name,
+      questions: [],
+      mediaHint: 'optional',
+    }));
+}
+
+/** The categories to offer, with added services before "Other service". */
+export function categoriesFor(requestType: JobCategory['requestType'] | undefined) {
+  const base = CATEGORIES.filter(c => c.requestType === requestType);
+  if (requestType !== 'service') {
+    return base;
+  }
+  const other = base.filter(c => c.id === 'other_service');
+  return [...base.filter(c => c.id !== 'other_service'), ...addedServices, ...other];
+}
+
+/**
+ * A category by id. An id this app doesn't know (a package added later)
+ * still gets a readable label from the id itself.
+ */
+export function getCategory(id: string | undefined): JobCategory | undefined {
+  if (!id) {
+    return undefined;
+  }
+  const known =
+    CATEGORIES.find(c => c.id === id) ?? addedServices.find(c => c.id === id);
+  if (known) {
+    return known;
+  }
+  const words = id.replace(/_/g, ' ');
+  return {
+    id,
+    requestType: 'service',
+    label: words.charAt(0).toUpperCase() + words.slice(1),
+    questions: [],
+    mediaHint: 'optional',
+  };
 }

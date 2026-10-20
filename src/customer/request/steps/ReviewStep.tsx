@@ -7,11 +7,18 @@ import {
   View,
 } from 'react-native';
 import { formatKes } from '../../../domain/money';
+import {
+  fixedTotal,
+  PartsOption,
+  VEHICLE_CLASS_LABELS,
+} from '../../../domain/pricing/catalog';
 import { PriceEstimate } from '../../../domain/pricing/PricingService';
+import { QuoteItemInput } from '../../../domain/quotes/types';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { QuoteItemsList } from '../../../shared/components/QuoteItemsList';
 import { colors } from '../../../shared/theme/colors';
 import { vehicleName } from '../../data/mockVehicles';
+import { OptionCard } from '../components/OptionCard';
 import { StepLayout } from '../components/StepLayout';
 import { getCategory } from '../data/categories';
 import { QUESTIONS } from '../data/questions';
@@ -31,6 +38,9 @@ type Props = {
   estimate?: PriceEstimate;
   estimateFailed?: boolean;
   onRetryEstimate: () => void;
+  /** Fixed-price services: who brings the parts. */
+  partsOption: PartsOption;
+  onPartsOptionChange: (option: PartsOption) => void;
 };
 
 function urgencyText(draft: RequestDraft) {
@@ -57,6 +67,8 @@ export function ReviewStep({
   estimate,
   estimateFailed = false,
   onRetryEstimate,
+  partsOption,
+  onPartsOptionChange,
 }: Props) {
   const category = getCategory(draft.categoryId);
   const questionIds = resolveQuestionPath(draft.categoryId, draft.answers);
@@ -83,6 +95,8 @@ export function ReviewStep({
         estimate={estimate}
         failed={estimateFailed}
         onRetry={onRetryEstimate}
+        partsOption={partsOption}
+        onPartsOptionChange={onPartsOptionChange}
       />
 
       <Section title="Vehicle" onEdit={() => onEdit('vehicle')}>
@@ -151,14 +165,25 @@ export function ReviewStep({
 }
 
 /** What the booking costs, shown before the customer commits. */
+const listed = (items: QuoteItemInput[]) =>
+  items.map((item, i) => ({
+    ...item,
+    id: String(i),
+    total: item.quantity * item.unitPrice,
+  }));
+
 function PriceSection({
   estimate,
   failed,
   onRetry,
+  partsOption,
+  onPartsOptionChange,
 }: {
   estimate?: PriceEstimate;
   failed: boolean;
   onRetry: () => void;
+  partsOption: PartsOption;
+  onPartsOptionChange: (option: PartsOption) => void;
 }) {
   if (failed) {
     return (
@@ -184,14 +209,38 @@ function PriceSection({
       {service && (
         <>
           <Text style={styles.primary}>{service.packageName}</Text>
-          <QuoteItemsList
-            items={service.items.map((item, i) => ({
-              ...item,
-              id: String(i),
-              total: item.quantity * item.unitPrice,
-            }))}
-            totalLabel="Service · pay after the work"
-          />
+          <Text style={styles.secondary}>
+            Priced for a {VEHICLE_CLASS_LABELS[service.vehicleClass].toLowerCase()}
+          </Text>
+          <QuoteItemsList items={listed(service.items)} totalLabel="Labour" />
+          {service.parts.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, styles.partsTitle]}>Parts</Text>
+              <OptionCard
+                label={`My fundi brings the parts · ${formatKes(service.partsTotal)}`}
+                description="Paid with the service. Your fundi buys them before starting."
+                selected={partsOption === 'MECHANIC'}
+                onPress={() => onPartsOptionChange('MECHANIC')}
+              />
+              <OptionCard
+                label="I'll buy my own parts"
+                description="Have them ready when your fundi arrives. You only pay for labour."
+                selected={partsOption === 'OWN'}
+                onPress={() => onPartsOptionChange('OWN')}
+              />
+              {partsOption === 'MECHANIC' && (
+                <QuoteItemsList items={listed(service.parts)} totalLabel="Parts" />
+              )}
+            </>
+          )}
+          <View style={styles.priceRow}>
+            <Text style={[styles.primary, styles.grow]}>
+              Service · pay when work starts
+            </Text>
+            <Text style={styles.price}>
+              {formatKes(fixedTotal(service, partsOption))}
+            </Text>
+          </View>
           <Text style={styles.note}>
             Fixed by Fundi-X: your fundi can't change it. Extra work only
             happens if you approve it.
@@ -290,6 +339,9 @@ const styles = StyleSheet.create({
   priceSection: {
     borderColor: colors.primary,
     gap: 8,
+  },
+  partsTitle: {
+    marginTop: 8,
   },
   priceRow: {
     flexDirection: 'row',

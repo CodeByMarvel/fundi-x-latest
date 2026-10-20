@@ -147,7 +147,7 @@ describe('POST /jobs', () => {
       .select()
       .from(charges)
       .where(eq(charges.jobId, job.id));
-    expect(owed.map(c => c.purpose).sort()).toEqual(['CALL_OUT', 'SERVICE']);
+    expect(owed.map(c => c.purpose).sort()).toEqual(['CALL_OUT', 'PARTS', 'SERVICE']);
   });
 
   it('refuses a booking at a price that is no longer current, saving nothing', async () => {

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { jobRepository, pricingService } from '../../data/backend';
+import { fixedTotal, PartsOption } from '../../domain/pricing/catalog';
 import {
   PriceChangedError,
   PriceEstimate,
@@ -60,6 +61,9 @@ export function RequestFlowScreen({ navigation, route }: Props) {
   const submittingRef = useRef(false);
 
   const [estimate, setEstimate] = useState<PriceEstimate>();
+  // Kept out of the draft: switching it changes the total, not the price
+  // list, so the estimate isn't fetched again.
+  const [partsOption, setPartsOption] = useState<PartsOption>('MECHANIC');
   const [estimateFailed, setEstimateFailed] = useState(false);
   /** Bumped to ask for the price again. */
   const [priceRequest, setPriceRequest] = useState(0);
@@ -171,11 +175,13 @@ export function RequestFlowScreen({ navigation, route }: Props) {
     try {
       // Send back the prices the customer saw, so the backend can refuse
       // the booking if they've changed since.
+      const service = estimate.fixedService;
       const job = await jobRepository.createJob({
         ...buildJobDetails(draft, vehicle),
+        ...(service && service.parts.length > 0 && { partsOption }),
         acceptedPrice: {
           callOut: estimate.callOut,
-          fixedServiceTotal: estimate.fixedService?.total,
+          fixedServiceTotal: service && fixedTotal(service, partsOption),
         },
       });
       // Next stop: paying the call-out, on the job's own screen.
@@ -237,6 +243,8 @@ export function RequestFlowScreen({ navigation, route }: Props) {
             estimate={estimate}
             estimateFailed={estimateFailed}
             onRetryEstimate={() => setPriceRequest(n => n + 1)}
+            partsOption={partsOption}
+            onPartsOptionChange={setPartsOption}
           />
         );
     }

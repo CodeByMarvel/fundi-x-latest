@@ -6,6 +6,7 @@ import type {
 import { calculateEstimate } from '../../../src/domain/pricing/engine';
 import { callerOf, requireCustomer } from '../auth';
 import type { Database } from '../db/client';
+import { liveCatalog } from '../catalog/store';
 import { getSetting } from '../settings';
 import type { QuoteItemInput } from '../../../src/domain/quotes/types';
 import * as act from './actions';
@@ -40,9 +41,17 @@ export function registerJobRoutes(app: FastifyInstance, db: Database) {
       return calculateEstimate(
         request.body,
         await getSetting(db, 'call_out_fee'),
+        (await liveCatalog(db)).catalog,
       );
     },
   );
+
+  /** The fixed-price services on offer, for the app's service list. */
+  app.get('/pricing/services', async request => {
+    requireCustomer(request);
+    const { catalog } = await liveCatalog(db);
+    return catalog.packages.filter(p => p.active).map(p => ({ id: p.id, name: p.name }));
+  });
 
   app.post<{ Body: CreateJobInput }>(
     '/jobs',

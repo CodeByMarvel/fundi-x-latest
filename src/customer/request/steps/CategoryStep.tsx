@@ -1,13 +1,35 @@
-import { CATEGORIES } from '../data/categories';
+import { useEffect, useState } from 'react';
+import { pricingService } from '../../../data/backend';
+import { categoriesFor, setOfferedServices } from '../data/categories';
 import { OptionCard } from '../components/OptionCard';
 import { StepLayout } from '../components/StepLayout';
 import { StepProps } from './stepProps';
 
 export function CategoryStep({ draft, onNext }: StepProps) {
   const isRepair = draft.requestType === 'repair';
-  const categories = CATEGORIES.filter(
-    c => c.requestType === draft.requestType,
+  const [categories, setCategories] = useState(() =>
+    categoriesFor(draft.requestType),
   );
+
+  // Fundi-X may offer services added since this app version was built.
+  useEffect(() => {
+    if (isRepair) {
+      return;
+    }
+    let active = true;
+    pricingService
+      .services()
+      .then(services => {
+        setOfferedServices(services);
+        if (active) {
+          setCategories(categoriesFor(draft.requestType));
+        }
+      })
+      .catch(() => {}); // the built-in list still works
+    return () => {
+      active = false;
+    };
+  }, [isRepair, draft.requestType]);
 
   return (
     <StepLayout

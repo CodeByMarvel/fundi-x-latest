@@ -12,6 +12,7 @@ export type Route =
   | { page: 'job'; id: string }
   | { page: 'engineering' }
   | { page: 'settings' }
+  | { page: 'catalog' }
   | { page: 'audit' };
 
 export function parse(hash: string): Route {
@@ -29,6 +30,7 @@ export function parse(hash: string): Route {
           };
     case 'engineering':
     case 'settings':
+    case 'catalog':
     case 'audit':
       return { page: first };
     default:

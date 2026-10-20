@@ -8,6 +8,7 @@ import type {
   Vehicle,
 } from './request';
 import type { Cents } from '../money';
+import type { PartsOption } from '../pricing/catalog';
 
 /**
  * Where a job is in its lifecycle. This is the domain's view of a job, not
@@ -84,6 +85,11 @@ export type Job = {
   location: RequestLocation;
   urgency: Urgency;
   scheduledFor?: ScheduledFor;
+  /**
+   * Fixed-price jobs: whether the mechanic brings the parts (paid with the
+   * service) or the customer has their own. Chosen before the call-out.
+   */
+  partsOption?: PartsOption;
 
   /** The latest version of the main quote, whatever its status. */
   baseQuoteId?: string;
@@ -173,6 +179,7 @@ export type JobRequestDetails = Pick<
   | 'location'
   | 'urgency'
   | 'scheduledFor'
+  | 'partsOption'
 >;
 
 /**
@@ -182,7 +189,7 @@ export type JobRequestDetails = Pick<
  */
 export type AcceptedPrice = {
   callOut: Cents;
-  /** Only for FIXED pricing: the Fundi-X service price. */
+  /** Only for FIXED pricing: the Fundi-X service price, with the parts option. */
   fixedServiceTotal?: Cents;
 };
 

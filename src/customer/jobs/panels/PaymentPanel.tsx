@@ -139,7 +139,7 @@ function ServiceSummary({ job }: { job: Job }) {
   return (
     <>
       {ledger.charges
-        .filter(c => c.purpose === 'SERVICE')
+        .filter(c => c.purpose === 'SERVICE' || c.purpose === 'PARTS')
         .map(c => (
           <Row key={c.id} label={c.description} value={formatKes(c.amount)} />
         ))}
@@ -153,8 +153,9 @@ function ServiceSummary({ job }: { job: Job }) {
       <View style={styles.divider} />
       <Row label="To pay now" value={formatKes(ledger.serviceDue)} strong />
       <Text style={styles.hint}>
-        Held safely by Fundi-X. Your fundi only receives it once you confirm the
-        work is done, and you can report a problem before then.
+        {ledger.charges.some(c => c.purpose === 'PARTS')
+          ? 'The parts money goes to your fundi now, to buy the parts. The rest is held safely by Fundi-X until you confirm the work is done, and you can report a problem before then.'
+          : 'Held safely by Fundi-X. Your fundi only receives it once you confirm the work is done, and you can report a problem before then.'}
       </Text>
     </>
   );

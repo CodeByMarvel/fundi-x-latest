@@ -28,15 +28,26 @@ export function totalCharged(
   );
 }
 
+/** The parts share of a payment (fixed-price jobs only). */
+export const partsShare = (p: Payment): Cents => p.partsAmount ?? 0;
+
+/** How much of a payment went to one purpose. */
+export function paidFor(p: Payment, purpose: MoneyPurpose): Cents {
+  if (purpose === 'PARTS') {
+    return partsShare(p);
+  }
+  return p.purpose === purpose ? p.amount - partsShare(p) : 0;
+}
+
 export function totalPaid(
   payments: readonly Payment[],
   jobId: string,
   purpose?: MoneyPurpose,
 ): Cents {
   return sum(
-    successfulPayments(payments, jobId)
-      .filter(p => !purpose || p.purpose === purpose)
-      .map(p => p.amount),
+    successfulPayments(payments, jobId).map(p =>
+      purpose ? paidFor(p, purpose) : p.amount,
+    ),
   );
 }
 
@@ -81,12 +92,18 @@ const PROVIDER_COMMITTED: JobStatus[] = [
   'SERVICE_PAYMENT_PENDING',
 ];
 
-/** Everything the customer has put into escrow for this job. */
+/**
+ * What a payment leaves in escrow: all of it, minus any parts money, which
+ * was released to the mechanic when it arrived.
+ */
+export const heldInEscrow = (p: Payment): Cents => p.amount - partsShare(p);
+
+/** Everything still held in escrow for this job. */
 export function escrowTotal(
   payments: readonly Payment[],
   jobId: string,
 ): Cents {
-  return totalPaid(payments, jobId);
+  return sum(successfulPayments(payments, jobId).map(heldInEscrow));
 }
 
 /**
@@ -98,8 +115,14 @@ export function settlementFor(
   job: Job,
   payments: readonly Payment[],
 ): Settlement {
-  const paid = successfulPayments(payments, job.id);
-  const whole = (p: Payment): MoneyMove => ({ payment: p, amount: p.amount });
+  // Parts money already left escrow; only what's still held moves now.
+  const paid = successfulPayments(payments, job.id).filter(
+    p => heldInEscrow(p) > 0,
+  );
+  const whole = (p: Payment): MoneyMove => ({
+    payment: p,
+    amount: heldInEscrow(p),
+  });
   const refundAll: Settlement = { refund: paid.map(whole), release: [] };
   const releaseAll: Settlement = { refund: [], release: paid.map(whole) };
 
@@ -150,13 +173,14 @@ function splitByResolution(job: Job, paid: Payment[]): Settlement {
   ];
   const settlement: Settlement = { refund: [], release: [] };
   for (const payment of ordered) {
-    const refund = Math.min(toRefund, payment.amount);
+    const held = heldInEscrow(payment);
+    const refund = Math.min(toRefund, held);
     toRefund -= refund;
     if (refund > 0) {
       settlement.refund.push({ payment, amount: refund });
     }
-    if (payment.amount - refund > 0) {
-      settlement.release.push({ payment, amount: payment.amount - refund });
+    if (held - refund > 0) {
+      settlement.release.push({ payment, amount: held - refund });
     }
   }
   return settlement;

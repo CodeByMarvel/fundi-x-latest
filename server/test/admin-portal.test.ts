@@ -214,7 +214,7 @@ describe('jobs', () => {
     expect(detail.job).toMatchObject({ id: job.id, status: 'CALL_OUT_PAYMENT_PENDING', pricingMode: 'FIXED' });
     expect(detail.customer.name).toBe('Wanjiru');
     expect(detail.events).toHaveLength(1);
-    expect(detail.charges.map((c: { purpose: string }) => c.purpose)).toEqual(['CALL_OUT', 'SERVICE']);
+    expect(detail.charges.map((c: { purpose: string }) => c.purpose)).toEqual(['CALL_OUT', 'SERVICE', 'PARTS']);
     expect(detail.quotes).toHaveLength(1);
     expect(detail.timers[0].kind).toBe('CALL_OUT_PAYMENT_DEADLINE');
     expect(detail.money).toMatchObject({ paid: 0, heldInEscrow: 0 });

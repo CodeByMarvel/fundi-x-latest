@@ -1,5 +1,5 @@
 import { BillingService } from '../../domain/billing/BillingService';
-import { commissionOn } from '../../domain/billing/commission';
+import { releaseLine } from '../../domain/billing/commission';
 import {
   balanceDue,
   escrowTotal,
@@ -13,8 +13,10 @@ import {
   Payment,
   PaymentError,
   PaymentFailureReason,
+  PaymentPurpose,
   Refund,
   Release,
+  ReleaseLine,
 } from '../../domain/billing/types';
 import { JobRepository } from '../../domain/jobs/JobRepository';
 import {
@@ -60,6 +62,7 @@ import {
 } from '../../domain/quotes/quotes';
 import { Quote, QuoteItemInput } from '../../domain/quotes/types';
 import { delay } from './delay';
+import { DEFAULT_CATALOG } from '../../domain/pricing/catalog';
 import { calculateEstimate } from '../../domain/pricing/engine';
 import { mockProviders } from './mockProviders';
 import { startProviderBots } from './providerBots';
@@ -319,12 +322,16 @@ export function createMockBackend({
       );
     }
     if (release.length > 0 && job.providerId) {
-      const lines = release.map(({ payment, amount }: MoneyMove) => ({
-        paymentId: payment.id,
-        purpose: payment.purpose,
-        gross: amount,
-        commission: commissionOn(amount, payment.purpose),
-      }));
+      const lines = release.map(({ payment, amount }: MoneyMove) =>
+        releaseLine(payment.id, payment.purpose, amount),
+      );
+      addRelease(job, lines);
+    }
+  };
+
+  /** Money leaving escrow to the job's provider, minus commission. */
+  const addRelease = (job: Job, lines: ReleaseLine[]) => {
+    if (job.providerId) {
       const gross = lines.reduce((s, l) => s + l.gross, 0);
       const commission = lines.reduce((s, l) => s + l.commission, 0);
       releases = [
@@ -632,9 +639,10 @@ export function createMockBackend({
         const { acceptedPrice, ...details } = input;
         // Never trust a price from the app: recalculate it here.
         const estimate = calculateEstimate(details);
+        const fixed = estimate.fixedService;
         if (
           estimate.callOut !== acceptedPrice.callOut ||
-          estimate.fixedService?.total !== acceptedPrice.fixedServiceTotal
+          fixed?.total !== acceptedPrice.fixedServiceTotal
         ) {
           throw new PriceChangedError();
         }
@@ -642,6 +650,8 @@ export function createMockBackend({
         const at = now();
         const job: Job = {
           ...details,
+          partsOption:
+            fixed && fixed.parts.length > 0 ? fixed.partsOption : undefined,
           id: makeId('job'),
           customerId: MOCK_CUSTOMER_ID,
           pricingMode: estimate.pricingMode,
@@ -656,8 +666,9 @@ export function createMockBackend({
           estimate.callOut,
           'Call-out (transport & inspection)',
         );
-        if (estimate.fixedService) {
+        if (fixed) {
           // The customer accepted this price when booking.
+          const withParts = fixed.partsOption === 'MECHANIC';
           const quote = newQuote(
             job.id,
             {
@@ -665,13 +676,16 @@ export function createMockBackend({
               issuedBy: 'FUNDI_X',
               version: 1,
               status: 'APPROVED',
-              note: estimate.fixedService.packageName,
+              note: fixed.packageName,
               respondedAt: at,
             },
-            estimate.fixedService.items,
+            [...fixed.items, ...(withParts ? fixed.parts : [])],
           );
           putQuote(quote);
-          chargeForQuote(quote);
+          addCharge(job.id, 'SERVICE', fixed.serviceTotal, 'Agreed work', quote.id);
+          if (withParts && fixed.partsTotal > 0) {
+            addCharge(job.id, 'PARTS', fixed.partsTotal, 'Parts', quote.id);
+          }
           job.baseQuoteId = quote.id;
         }
 
@@ -686,7 +700,9 @@ export function createMockBackend({
             createdAt: at,
             metadata: {
               callOut: estimate.callOut,
-              fixedServiceTotal: estimate.fixedService?.total ?? null,
+              fixedServiceTotal: fixed?.total ?? null,
+              vehicleClass: fixed?.vehicleClass ?? null,
+              partsOption: job.partsOption ?? null,
             },
           },
         ]);
@@ -1050,6 +1066,10 @@ export function createMockBackend({
       !payment.quoteId &&
       job.status === 'SERVICE_PAYMENT_PENDING'
     ) {
+      // Parts money goes to the mechanic now so they can buy the parts.
+      if (payment.partsAmount) {
+        addRelease(job, [releaseLine(payment.id, 'PARTS', payment.partsAmount)]);
+      }
       // The agreed price is in escrow: work can start.
       transitionJob(job.id, 'IN_PROGRESS', 'SYSTEM', { metadata });
     } else if (
@@ -1087,8 +1107,9 @@ export function createMockBackend({
       const job = jobs.get(jobId);
       // The backend, not the app, decides what this payment is for and how
       // much it is.
-      let purpose: MoneyPurpose | undefined;
+      let purpose: PaymentPurpose | undefined;
       let amount = 0;
+      let partsAmount = 0;
       if (options.quoteId) {
         if (job?.status !== 'IN_PROGRESS') {
           throw new PaymentError(
@@ -1105,8 +1126,10 @@ export function createMockBackend({
         purpose = 'CALL_OUT';
         amount = balanceDue(charges, payments, jobId, purpose);
       } else if (job?.status === 'SERVICE_PAYMENT_PENDING') {
+        // One prompt for the agreed work and the parts.
         purpose = 'SERVICE';
-        amount = balanceDue(charges, payments, jobId, purpose);
+        partsAmount = balanceDue(charges, payments, jobId, 'PARTS');
+        amount = balanceDue(charges, payments, jobId, purpose) + partsAmount;
       }
       if (!job || !purpose) {
         throw new PaymentError('This job is not waiting for payment.');
@@ -1129,6 +1152,7 @@ export function createMockBackend({
         method: 'MPESA',
         phone,
         amount,
+        ...(partsAmount > 0 && { partsAmount }),
         status: 'PENDING',
         createdAt: at,
         updatedAt: at,
@@ -1176,6 +1200,12 @@ export function createMockBackend({
 
   const pricing: PricingService = {
     estimate: details => call(() => calculateEstimate(details), 400),
+    services: () =>
+      call(() =>
+        DEFAULT_CATALOG.packages
+          .filter(p => p.active)
+          .map(p => ({ id: p.id, name: p.name })),
+      ),
   };
 
   // ---- Providers ----

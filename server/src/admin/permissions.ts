@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   'users.suspend',
   'providers.verify',
   'settings.edit',
+  'catalog.edit',
   'logs.view',
   'incidents.resolve',
   'timers.retry',

@@ -15,6 +15,8 @@ export const when = (iso: string) => dateTime.format(new Date(iso));
 export const SETTINGS: Record<
   string,
   | { label: string; help: string; kind: 'money' }
+  /** Stored in basis points (2000 = 20%), edited as a percentage. */
+  | { label: string; help: string; kind: 'percent' }
   | { label: string; help: string; kind: 'number'; unit: string; min: number; max: number }
 > = {
   call_out_fee: {
@@ -46,13 +48,34 @@ export const SETTINGS: Record<
     min: 15,
     max: 300,
   },
+  commission_call_out_bps: {
+    label: 'Commission on call-outs',
+    help: "Fundi-X's share of the call-out fee, taken when it's paid out to the mechanic.",
+    kind: 'percent',
+  },
+  commission_service_bps: {
+    label: 'Commission on labour',
+    help: "Fundi-X's share of the work: fixed-price labour and quoted repairs. Taken when the customer confirms the job.",
+    kind: 'percent',
+  },
+  commission_parts_bps: {
+    label: 'Commission on parts',
+    help: 'Handling fee on parts the mechanic buys for the customer on fixed-price services. Taken when the parts money is paid out, before work starts. Catalog part prices should include it so the mechanic is never short.',
+    kind: 'percent',
+  },
 };
+
+/** 2000 basis points → "20%" */
+export const percent = (bps: number) => `${bps / 100}%`;
 
 /** A setting value as people read it. */
 export function settingValue(key: string | null, value: unknown) {
   const meta = key ? SETTINGS[key] : undefined;
   if (meta?.kind === 'money' && typeof value === 'number') {
     return ksh(value);
+  }
+  if (meta?.kind === 'percent' && typeof value === 'number') {
+    return percent(value);
   }
   if (meta?.kind === 'number' && typeof value === 'number') {
     return `${value} ${meta.unit}`;
@@ -69,6 +92,7 @@ export const ACTIONS: Record<string, string> = {
   'settings.update': 'Setting changed',
   'timer.retry': 'Timer retried',
   'incident.resolve': 'Incident resolved',
+  'catalog.update': 'Catalog changed',
 };
 
 /** Audit actions worth a second look. */

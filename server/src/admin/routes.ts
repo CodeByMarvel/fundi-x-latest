@@ -12,6 +12,7 @@ import {
   type SettingKey,
 } from '../settings';
 import type { GoogleIdentity, GoogleVerifier } from './google';
+import { registerAdminCatalog } from './catalog';
 import { registerAdminDashboard } from './dashboard';
 import { registerAdminEngineering } from './engineering';
 import { registerAdminJobs } from './jobs';
@@ -300,6 +301,7 @@ export function registerAdminRoutes(
       registerAdminDashboard(admin, db);
       registerAdminJobs(admin, db);
       registerAdminEngineering(admin, db);
+      registerAdminCatalog(admin, db);
     },
     { prefix: '/admin' },
   );

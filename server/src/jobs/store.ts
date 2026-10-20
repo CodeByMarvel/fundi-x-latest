@@ -56,6 +56,7 @@ export function toRow(job: Job): JobRow {
     location,
     urgency,
     scheduledFor,
+    partsOption,
     // Whatever is left is the optional detail stored as JSON.
     ...extra
   } = job;
@@ -77,6 +78,7 @@ export function toRow(job: Job): JobRow {
       location,
       urgency,
       ...(scheduledFor && { scheduledFor }),
+      ...(partsOption && { partsOption }),
     },
     extra,
     h3Cell: location.coords ? matchingCell(location.coords) : null,
@@ -96,6 +98,7 @@ export function toPayment(row: PaymentRow): Payment {
     method: row.method,
     phone: row.phone,
     amount: row.amount,
+    ...(row.partsAmount > 0 && { partsAmount: row.partsAmount }),
     status: row.status,
     ...(row.failureReason && {
       failureReason: row.failureReason as Payment['failureReason'],

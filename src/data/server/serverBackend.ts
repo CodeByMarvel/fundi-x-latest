@@ -352,6 +352,7 @@ export function createServerBackend({
 
   const pricing: PricingService = {
     estimate: details => api<PriceEstimate>('/pricing/estimate', 'POST', details),
+    services: () => api<{ id: string; name: string }[]>('/pricing/services'),
   };
 
   const providerRepository: ProviderRepository = {

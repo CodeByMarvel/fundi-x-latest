@@ -133,7 +133,7 @@ export const billingService = forward('billing', [
   'getReleasesSnapshot',
 ]);
 
-export const pricingService = forward('pricing', ['estimate']);
+export const pricingService = forward('pricing', ['estimate', 'services']);
 
 export const providerRepository = forward('providers', [
   'setOnline',

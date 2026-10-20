@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { COMMISSION_BPS, type CommissionRates } from '../../src/domain/billing/commission';
 import type { Cents } from '../../src/domain/money';
 import { CALL_OUT_FEE } from '../../src/domain/pricing/engine';
 import type { Database, Tx } from './db/client';
@@ -22,6 +23,15 @@ export const SETTING_DEFAULTS = {
   matching_round_seconds: 10,
   /** How long a provider has to accept or decline an offer. */
   offer_timeout_seconds: 45,
+  /**
+   * Fundi-X's cut, in basis points (2000 = 20%), taken when money is
+   * released to the provider (docs/job-flow.md §8).
+   */
+  commission_call_out_bps: COMMISSION_BPS.CALL_OUT,
+  /** Labour and other work. */
+  commission_service_bps: COMMISSION_BPS.SERVICE,
+  /** Parts the mechanic buys for the customer on fixed-price jobs. */
+  commission_parts_bps: COMMISSION_BPS.PARTS,
 };
 
 export type Settings = typeof SETTING_DEFAULTS;
@@ -55,7 +65,16 @@ const RULES: { [K in SettingKey]: (value: unknown) => string | null } = {
     wholeBetween(value, 15, 300)
       ? null
       : 'Offer time must be a whole number of seconds from 15 to 300',
+  commission_call_out_bps: value => rateProblem(value),
+  commission_service_bps: value => rateProblem(value),
+  commission_parts_bps: value => rateProblem(value),
 };
+
+/** Commission between 0% and 50%. */
+const rateProblem = (value: unknown) =>
+  wholeBetween(value, 0, 5000)
+    ? null
+    : 'Commission must be a whole number of basis points from 0 to 5000 (50%)';
 
 export const settingProblem = (key: SettingKey, value: unknown) =>
   RULES[key](value);
@@ -87,4 +106,14 @@ export async function setSetting<K extends SettingKey>(
       target: settings.key,
       set: { value, updatedBy: by, updatedAt: at },
     });
+}
+
+/** The live commission rates, one per kind of money. */
+export async function commissionRates(db: Database | Tx): Promise<CommissionRates> {
+  const [callOut, service, parts] = await Promise.all([
+    getSetting(db, 'commission_call_out_bps'),
+    getSetting(db, 'commission_service_bps'),
+    getSetting(db, 'commission_parts_bps'),
+  ]);
+  return { CALL_OUT: callOut, SERVICE: service, PARTS: parts };
 }

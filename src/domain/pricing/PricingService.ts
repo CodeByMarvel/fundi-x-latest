@@ -1,16 +1,19 @@
 import { JobRequestDetails, PricingMode } from '../jobs/types';
 import { Cents } from '../money';
-import { QuoteItemInput } from '../quotes/types';
+import type { FixedServicePrice, PartsOption } from './catalog';
 
 /** What a booking will cost, shown to the customer before they pay. */
 export type PriceEstimate = {
   pricingMode: PricingMode;
   /** Transport and inspection, paid before dispatch. */
   callOut: Cents;
-  /** FIXED pricing only: the Fundi-X price for the work. */
-  fixedService?: {
-    packageName: string;
-    items: QuoteItemInput[];
+  /**
+   * FIXED pricing only: the Fundi-X price for the work. Labour is always
+   * included; the parts are added unless the customer brings their own.
+   */
+  fixedService?: FixedServicePrice & {
+    partsOption: PartsOption;
+    /** What the work costs with this parts option. */
     total: Cents;
   };
 };
@@ -22,6 +25,8 @@ export type PriceEstimate = {
  */
 export interface PricingService {
   estimate(details: JobRequestDetails): Promise<PriceEstimate>;
+  /** The fixed-price services on offer now (the catalog's active packages). */
+  services(): Promise<{ id: string; name: string }[]>;
 }
 
 /** The price changed between the customer seeing it and booking. */

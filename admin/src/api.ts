@@ -74,6 +74,7 @@ export type Permission =
   | 'users.suspend'
   | 'providers.verify'
   | 'settings.edit'
+  | 'catalog.edit'
   | 'logs.view'
   | 'incidents.resolve'
   | 'timers.retry'
@@ -283,4 +284,45 @@ export type Dashboard = {
     lateArrivals: number;
   };
   settings?: { callOutFee: number };
+};
+
+export const VEHICLE_CLASSES = ['SMALL', 'MEDIUM', 'LARGE', 'FOUR_X4', 'PREMIUM'] as const;
+export type VehicleClass = (typeof VEHICLE_CLASSES)[number];
+export type Fuel = 'petrol' | 'diesel' | 'hybrid' | 'electric';
+export type ItemKind = 'PART' | 'LABOUR' | 'CONSUMABLE' | 'OTHER';
+
+/** Mirrors src/domain/pricing/catalog.ts. */
+export type CatalogItem = {
+  serviceCode: string;
+  kind: ItemKind;
+  description: string;
+  prices: Partial<Record<VehicleClass, { quantity: number; unitPrice: number }>>;
+};
+export type CatalogPackage = { id: string; name: string; active: boolean; items: CatalogItem[] };
+export type ModelSpec = { make: string; model: string; engineCc: number; fuel: Fuel };
+export type Catalog = { packages: CatalogPackage[]; models: ModelSpec[]; premiumMakes: string[] };
+
+export type CatalogPage = {
+  versionId: string | null;
+  catalog: Catalog;
+  history: { id: string; summary: string; reason: string; createdAt: string; staffEmail: string | null }[];
+  classes: { id: VehicleClass; label: string }[];
+  serviceCodes: { code: string; label: string; kind: ItemKind }[];
+};
+
+type PricedLine = { serviceCode: string; kind: ItemKind; description: string; quantity: number; unitPrice: number };
+
+export type PricePreview = {
+  pricingMode: 'FIXED' | 'QUOTED';
+  callOut: number;
+  fixedService?: {
+    packageName: string;
+    vehicleClass: VehicleClass;
+    items: PricedLine[];
+    parts: PricedLine[];
+    serviceTotal: number;
+    partsTotal: number;
+    total: number;
+  };
+  classification: { vehicleClass: VehicleClass; source: 'make' | 'vehicle' | 'model_lookup' | 'default' };
 };

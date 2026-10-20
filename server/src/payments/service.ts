@@ -1,9 +1,10 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
+import { releaseLine } from '../../../src/domain/billing/commission';
 import {
   normaliseMpesaPhone,
-  type MoneyPurpose,
   type Payment,
   type PaymentFailureReason,
+  type PaymentPurpose,
 } from '../../../src/domain/billing/types';
 import { balanceDue } from '../../../src/domain/billing/ledger';
 import { STK_TIMEOUT_MS } from '../../../src/domain/jobs/rules';
@@ -15,6 +16,7 @@ import { newId } from '../ids';
 import { getJob, moveJob } from '../jobs/service';
 import { lockJob, toPayment, toQuote } from '../jobs/store';
 import { callOutPaid } from '../matching/service';
+import { commissionRates } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 
 /**
@@ -93,8 +95,9 @@ export function startPayment(
       await tx.select().from(charges).where(eq(charges.jobId, jobId))
     ).map(toCharge);
 
-    let purpose: MoneyPurpose | undefined;
+    let purpose: PaymentPurpose | undefined;
     let amount = 0;
+    let partsAmount = 0;
     if (quoteId) {
       if (job.status !== 'IN_PROGRESS') {
         throw paymentRefused('Extra work can only be paid for while work is in progress.');
@@ -112,8 +115,11 @@ export function startPayment(
       purpose = 'CALL_OUT';
       amount = balanceDue(jobCharges, jobPayments, jobId, purpose);
     } else if (job.status === 'SERVICE_PAYMENT_PENDING') {
+      // One PIN prompt for the agreed work and, if the mechanic brings
+      // them, the parts; the payment records how much is parts.
       purpose = 'SERVICE';
-      amount = balanceDue(jobCharges, jobPayments, jobId, purpose);
+      partsAmount = balanceDue(jobCharges, jobPayments, jobId, 'PARTS');
+      amount = balanceDue(jobCharges, jobPayments, jobId, purpose) + partsAmount;
     }
     if (!purpose) {
       throw paymentRefused('This job is not waiting for payment.');
@@ -137,6 +143,7 @@ export function startPayment(
         method: 'MPESA',
         phone,
         amount,
+        partsAmount,
         status: 'PENDING',
         createdAt: at,
         updatedAt: at,
@@ -191,6 +198,21 @@ export async function paymentSucceeded(
     return;
   }
   if (row.purpose === 'SERVICE' && !row.quoteId && job.status === 'SERVICE_PAYMENT_PENDING') {
+    // The parts money goes to the mechanic now, so they can buy the
+    // parts; the rest stays in escrow until the customer confirms.
+    if (row.partsAmount > 0 && job.providerId) {
+      const line = releaseLine(row.id, 'PARTS', row.partsAmount, await commissionRates(tx));
+      await tx.insert(releases).values({
+        id: newId('rel'),
+        jobId: job.id,
+        providerId: job.providerId,
+        lines: [line],
+        gross: line.gross,
+        commission: line.commission,
+        net: line.gross - line.commission,
+        createdAt: at,
+      });
+    }
     // The agreed price is in escrow: work can start.
     await moveJob(tx, job, 'IN_PROGRESS', 'SYSTEM', at, { metadata });
     return;

@@ -11,7 +11,12 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { ReleaseLine } from '../../../src/domain/billing/types';
+import type {
+  MoneyPurpose,
+  PaymentPurpose,
+  ReleaseLine,
+} from '../../../src/domain/billing/types';
+import type { Catalog } from '../../../src/domain/pricing/catalog';
 import type {
   Job,
   JobActor,
@@ -331,7 +336,7 @@ export const charges = pgTable(
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id),
-    purpose: text('purpose').$type<'CALL_OUT' | 'SERVICE'>().notNull(),
+    purpose: text('purpose').$type<MoneyPurpose>().notNull(),
     amount: cents('amount'),
     description: text('description').notNull(),
     quoteId: text('quote_id'),
@@ -348,11 +353,16 @@ export const payments = pgTable(
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id),
-    purpose: text('purpose').$type<'CALL_OUT' | 'SERVICE'>().notNull(),
+    purpose: text('purpose').$type<PaymentPurpose>().notNull(),
     quoteId: text('quote_id'),
     method: text('method').$type<'MPESA'>().notNull(),
     phone: text('phone').notNull(),
     amount: cents('amount'),
+    /**
+     * Of `amount`, what's for the parts (fixed-price jobs where the
+     * mechanic brings them). Released to the mechanic on success.
+     */
+    partsAmount: bigint('parts_amount', { mode: 'number' }).notNull().default(0),
     status: text('status')
       .$type<'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED'>()
       .notNull(),
@@ -526,4 +536,25 @@ export const incidents = pgTable(
       .where(sql`${t.status} = 'OPEN'`),
     index('incidents_last_seen_idx').on(t.lastSeenAt),
   ],
+);
+
+/**
+ * The maintenance catalog (docs/job-flow.md §3.2), one row per saved
+ * version: the latest is live. Every edit saves a whole new version with
+ * who and why, so any old price can be looked up and a bad change undone.
+ * With no rows, the starting catalog in src/domain/pricing/catalog.ts
+ * applies. Booked jobs keep their price: their quote holds a copy.
+ */
+export const catalogVersions = pgTable(
+  'catalog_versions',
+  {
+    id: text('id').primaryKey(),
+    catalog: jsonb('catalog').$type<Catalog>().notNull(),
+    /** What changed, in words, e.g. "Oil & filter change: prices". */
+    summary: text('summary').notNull(),
+    reason: text('reason').notNull(),
+    createdBy: text('created_by').references(() => staff.id),
+    createdAt: createdAt(),
+  },
+  t => [index('catalog_versions_created_idx').on(t.createdAt)],
 );
