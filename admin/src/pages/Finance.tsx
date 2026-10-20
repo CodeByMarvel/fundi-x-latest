@@ -5,6 +5,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ago, humanize, ksh, when } from '../format';
 import { href } from '../route';
 import type {
+  Books,
   EscrowRow,
   FinanceSummary,
   PaymentRow,
@@ -105,6 +106,8 @@ export function Finance() {
             </a>
           </div>
 
+          <BooksPanel />
+
           <DailyChart days={summary.byDay} />
 
           <section className="panel">
@@ -160,6 +163,83 @@ export function Finance() {
       {tab === 'escrow' && <Escrow />}
       {tab === 'mechanics' && <ByMechanic />}
     </>
+  );
+}
+
+/**
+ * The double-entry books (docs/ledger.md): where every shilling Fundi-X
+ * holds is right now, and the check that the books agree with the
+ * payment records.
+ */
+function BooksPanel() {
+  const [books, setBooks] = useState<Books | null>(null);
+  useEffect(() => {
+    api<Books>('/finance/books').then(setBooks, () => {});
+  }, []);
+  if (!books) {
+    return null;
+  }
+  const { totals, check } = books;
+  const problems = check.escrowMismatches.length + check.missingEntries.length + check.overdrawn.length;
+  return (
+    <section className={check.ok ? 'panel' : 'panel alert-panel'}>
+      <div className="panel-head">
+        <h2>Books</h2>
+        <span className={check.ok ? 'badge done' : 'badge bad'}>
+          {check.ok ? '✓ Balanced, and matches the records' : `${problems} problem${problems === 1 ? '' : 's'} found`}
+        </span>
+      </div>
+      <table>
+        <tbody>
+          <tr>
+            <td>Money at Safaricom (M-Pesa)</td>
+            <td className="num">
+              <strong>{ksh(totals.mpesa)}</strong>
+            </td>
+          </tr>
+          <tr>
+            <td className="muted">… held for jobs in progress (escrow)</td>
+            <td className="num">{ksh(totals.escrow)}</td>
+          </tr>
+          <tr>
+            <td className="muted">… earned by mechanics, not yet sent</td>
+            <td className="num">{ksh(totals.owedToMechanics)}</td>
+          </tr>
+          <tr>
+            <td className="muted">… refunds owed to customers, not yet sent</td>
+            <td className="num">{ksh(totals.owedToCustomers)}</td>
+          </tr>
+          <tr>
+            <td className="muted">… Fundi-X commission</td>
+            <td className="num">{ksh(totals.revenue)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {!check.ok && (
+        <div className="notice error">
+          <p>
+            <strong>The books disagree with the records.</strong> This is a bug to investigate,
+            never something to fix by editing rows.
+          </p>
+          {check.total !== 0 && <p>All entries together are off by {ksh(check.total)}.</p>}
+          {check.escrowMismatches.map(m => (
+            <p key={m.jobId}>
+              Job <JobLink id={m.jobId} />: records say {ksh(m.records)} held, books say {ksh(m.books)}.
+            </p>
+          ))}
+          {check.missingEntries.map(m => (
+            <p key={m.id}>
+              A {m.kind} (<span className="mono">{m.id}</span>) has no ledger entry.
+            </p>
+          ))}
+          {check.overdrawn.map(m => (
+            <p key={m.account}>
+              <span className="mono">{m.account}</span> was paid {ksh(m.balance)} more than it was owed.
+            </p>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

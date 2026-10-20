@@ -16,12 +16,17 @@ export const COMMISSION_BPS: CommissionRates = {
   PARTS: 500,
 };
 
+/**
+ * Rounded to the nearest whole shilling: M-Pesa only sends whole
+ * shillings, and amounts are whole shillings, so the mechanic's share
+ * (amount − commission) always is too.
+ */
 export function commissionOn(
   amount: Cents,
   purpose: MoneyPurpose,
   rates: CommissionRates = COMMISSION_BPS,
 ): Cents {
-  return Math.round((amount * rates[purpose]) / 10_000);
+  return Math.round((amount * rates[purpose]) / 1_000_000) * 100;
 }
 
 /** e.g. 2000 bp → "20%" */

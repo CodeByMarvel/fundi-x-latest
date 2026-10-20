@@ -201,3 +201,22 @@ export type SystemInfo = {
     tables: { table: string; rows: number }[];
   };
 };
+
+export type Books = {
+  check: {
+    ok: boolean;
+    total: number;
+    escrowMismatches: { jobId: string; records: number; books: number }[];
+    missingEntries: { kind: string; id: string }[];
+    overdrawn: { account: string; balance: number }[];
+  };
+  totals: { mpesa: number; escrow: number; owedToMechanics: number; owedToCustomers: number; revenue: number };
+};
+
+export type LedgerEntry = {
+  id: string;
+  kind: string;
+  description: string;
+  createdAt: string;
+  lines: { account: string; amount: number }[];
+};

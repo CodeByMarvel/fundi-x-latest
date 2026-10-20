@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, lt, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { TRANSITIONS } from '../../../src/domain/jobs/transitions';
@@ -10,6 +10,8 @@ import {
   jobEvents,
   jobMatching,
   jobs,
+  ledgerEntries,
+  ledgerLines,
   payments,
   providers,
   quotes,
@@ -160,6 +162,22 @@ export function registerAdminJobs(admin: FastifyInstance, db: Database) {
         .from(jobs)
         .where(eq(jobs.id, job.id));
       const [search] = await db.select().from(jobMatching).where(eq(jobMatching.jobId, job.id));
+      // The job's ledger entries with their lines (docs/ledger.md).
+      const entries = await db
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.jobId, job.id))
+        .orderBy(asc(ledgerEntries.createdAt));
+      const lines = entries.length
+        ? await db
+            .select()
+            .from(ledgerLines)
+            .where(inArray(ledgerLines.entryId, entries.map(e => e.id)))
+        : [];
+      const ledger = entries.map(e => ({
+        ...e,
+        lines: lines.filter(l => l.entryId === e.id).map(l => ({ account: l.account, amount: l.amount })),
+      }));
 
       return {
         job,
@@ -185,6 +203,7 @@ export function registerAdminJobs(admin: FastifyInstance, db: Database) {
         quotes: jobQuotes,
         timers: jobTimers,
         incidents: jobIncidents,
+        ledger,
       };
     },
   );

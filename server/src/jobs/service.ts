@@ -28,14 +28,13 @@ import {
   jobs,
   payments,
   quotes,
-  refunds,
-  releases,
   reliabilityEvents,
   users,
 } from '../db/schema';
 import { BadRequestError, ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { liveCatalog } from '../catalog/store';
+import { createRefund, createRelease } from '../money/records';
 import { commissionRates, getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 import { findJob, lockJob, saveJob, toPayment, toRow } from './store';
@@ -312,33 +311,23 @@ export async function settle(tx: Tx, job: Job, at: Date) {
   const rates = await commissionRates(tx);
 
   for (const move of refund) {
-    await tx.insert(refunds).values({
-      id: newId('ref'),
-      jobId: job.id,
-      paymentId: move.payment.id,
-      amount: move.amount,
-      reason: job.cancellation?.reason ?? 'job_closed',
-      // Sent to M-Pesa (B2C) by a later slice; SUCCESS once confirmed.
-      status: 'PENDING',
-      createdAt: at,
-      updatedAt: at,
-    });
+    // Sent back through M-Pesa (B2C) by the transfer worker.
+    await createRefund(
+      tx,
+      {
+        jobId: job.id,
+        customerId: job.customerId,
+        paymentId: move.payment.id,
+        amount: move.amount,
+        reason: job.cancellation?.reason ?? 'job_closed',
+      },
+      at,
+    );
   }
   if (release.length > 0 && job.providerId) {
     const lines = release.map(({ payment, amount }) =>
       releaseLine(payment.id, payment.purpose, amount, rates),
     );
-    const gross = lines.reduce((s, l) => s + l.gross, 0);
-    const commission = lines.reduce((s, l) => s + l.commission, 0);
-    await tx.insert(releases).values({
-      id: newId('rel'),
-      jobId: job.id,
-      providerId: job.providerId,
-      lines,
-      gross,
-      commission,
-      net: gross - commission,
-      createdAt: at,
-    });
+    await createRelease(tx, { jobId: job.id, providerId: job.providerId, lines }, at);
   }
 }

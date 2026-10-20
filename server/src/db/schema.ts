@@ -584,3 +584,53 @@ export const supportNotes = pgTable(
   },
   t => [index('support_notes_target_idx').on(t.targetType, t.targetId)],
 );
+
+/** What a ledger entry records (docs/ledger.md). */
+export type LedgerEntryKind =
+  | 'PAYMENT_RECEIVED' // M-Pesa confirmed money in: into the job's escrow
+  | 'RELEASE' // escrow to the mechanic, minus Fundi-X commission
+  | 'REFUND' // escrow back to the customer (owed until sent)
+  | 'PAYOUT_SENT' // M-Pesa B2C paid the mechanic
+  | 'REFUND_SENT'; // M-Pesa B2C paid the customer back
+
+/**
+ * The double-entry ledger (docs/ledger.md). Each entry is one money event;
+ * its lines move amounts between accounts and always add up to zero, so
+ * money is never created or lost. Rows are only ever added: the database
+ * refuses edits and deletes, and refuses an entry that doesn't balance.
+ */
+export const ledgerEntries = pgTable(
+  'ledger_entries',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<LedgerEntryKind>().notNull(),
+    jobId: text('job_id').references(() => jobs.id),
+    paymentId: text('payment_id'),
+    refundId: text('refund_id'),
+    releaseId: text('release_id'),
+    transferId: text('transfer_id'),
+    description: text('description').notNull(),
+    createdAt: createdAt(),
+  },
+  t => [index('ledger_entries_job_idx').on(t.jobId)],
+);
+
+/**
+ * One side of an entry. `amount` is signed: positive is a debit (money
+ * arriving in an asset, or a debt paid down), negative a credit. Account
+ * names: mpesa, escrow:<jobId>, provider:<userId>, customer:<userId>,
+ * revenue:<CALL_OUT|SERVICE|PARTS>.
+ */
+export const ledgerLines = pgTable(
+  'ledger_lines',
+  {
+    id: text('id').primaryKey(),
+    entryId: text('entry_id')
+      .notNull()
+      .references(() => ledgerEntries.id),
+    account: text('account').notNull(),
+    amount: cents('amount'),
+    createdAt: createdAt(),
+  },
+  t => [index('ledger_lines_account_idx').on(t.account), index('ledger_lines_entry_idx').on(t.entryId)],
+);

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db": "tsx scripts/db.ts"
+    "db": "tsx scripts/db.ts",
+    "books": "tsx scripts/checkBooks.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.9",

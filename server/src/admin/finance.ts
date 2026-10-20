@@ -2,6 +2,7 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client';
 import { jobs, payments, providers, refunds, releases, users } from '../db/schema';
+import { bookTotals, checkBooks } from '../money/check';
 import { startOfNairobiDay } from './dashboard';
 import { staffOf } from './session';
 import { heldInEscrowSql } from './support';
@@ -168,6 +169,16 @@ export function registerAdminFinance(admin: FastifyInstance, db: Database) {
         .limit(limit);
     },
   );
+
+  /**
+   * The double-entry books: balances by kind of account, and the check
+   * that they agree with the money records (docs/ledger.md §4).
+   */
+  admin.get('/finance/books', async request => {
+    await staffOf(db, request, 'money.view');
+    const [check, totals] = await Promise.all([checkBooks(db), bookTotals(db)]);
+    return { check, totals };
+  });
 
   /** Every job with money still held, oldest first: the longest-held needs a look. */
   admin.get('/finance/escrow', async request => {

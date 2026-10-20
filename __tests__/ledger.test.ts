@@ -63,9 +63,10 @@ describe('ledger', () => {
     expect(balanceDue(charges, payments, 'job-1', 'SERVICE')).toBe(kes(6500));
   });
 
-  it('takes commission in whole cents', () => {
+  it('takes commission in whole shillings, so payouts are whole shillings', () => {
     expect(commissionOn(kes(800), 'CALL_OUT')).toBe(kes(160));
-    expect(commissionOn(333, 'SERVICE')).toBe(67);
+    // 5% of KSh 4,950 is KSh 247.50: rounded to KSh 248.
+    expect(commissionOn(kes(4950), 'PARTS')).toBe(kes(248));
   });
 });
 

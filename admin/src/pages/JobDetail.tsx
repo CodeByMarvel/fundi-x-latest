@@ -325,6 +325,33 @@ export function JobDetail({ id, can }: { id: string; can: (p: Permission) => boo
         />
       </section>
 
+      <section className="panel">
+        <h2>Ledger</h2>
+        <p className="muted small">
+          The double-entry books for this job: each entry's lines add up to zero. Plus is money in
+          (or a debt paid down), minus is money owed or earned.
+        </p>
+        {data.ledger.length === 0 ? (
+          <p className="muted small">No money has moved yet.</p>
+        ) : (
+          <table>
+            <tbody>
+              {data.ledger.map(e =>
+                e.lines.map((l, i) => (
+                  <tr key={`${e.id}-${i}`} className={i === 0 ? 'entry-start' : ''}>
+                    <td className="nowrap muted small">{i === 0 ? when(e.createdAt) : ''}</td>
+                    <td className="small">{i === 0 ? e.description : ''}</td>
+                    <td className="mono small">{l.account.replace(job.id, 'this job')}</td>
+                    <td className="num">{l.amount > 0 ? ksh(l.amount) : ''}</td>
+                    <td className="num">{l.amount < 0 ? ksh(-l.amount) : ''}</td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
+        )}
+      </section>
+
       {data.quotes.length > 0 && (
         <section className="panel">
           <h2>Quotes</h2>

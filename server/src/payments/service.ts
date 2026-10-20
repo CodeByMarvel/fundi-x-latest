@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { releaseLine } from '../../../src/domain/billing/commission';
 import {
   normaliseMpesaPhone,
@@ -10,12 +10,13 @@ import { balanceDue } from '../../../src/domain/billing/ledger';
 import { STK_TIMEOUT_MS } from '../../../src/domain/jobs/rules';
 import type { Caller } from '../auth';
 import type { Database, Tx } from '../db/client';
-import { charges, payments, quotes, refunds, releases } from '../db/schema';
+import { charges, payments, quotes, refunds, releases, users } from '../db/schema';
 import { ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { getJob, moveJob } from '../jobs/service';
 import { lockJob, toPayment, toQuote } from '../jobs/store';
 import { callOutPaid } from '../matching/service';
+import { createRefund, createRelease, recordPaymentReceived } from '../money/records';
 import { commissionRates } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 
@@ -190,7 +191,14 @@ export async function paymentSucceeded(
     .update(payments)
     .set({ status: 'SUCCESS', receiptNumber, updatedAt: at })
     .where(eq(payments.id, paymentId));
+  await recordPaymentReceived(tx, row, receiptNumber, at);
   const job = await lockJob(tx, row.jobId);
+  // They typed their M-Pesa PIN on this number: it's theirs
+  // (docs/authentication.md, phone verification).
+  await tx
+    .update(users)
+    .set({ phoneVerifiedAt: at, updatedAt: at })
+    .where(and(eq(users.id, job.customerId), eq(users.phone, row.phone), isNull(users.phoneVerifiedAt)));
   const metadata = { paymentId, receiptNumber };
 
   if (row.purpose === 'CALL_OUT' && job.status === 'CALL_OUT_PAYMENT_PENDING') {
@@ -202,16 +210,7 @@ export async function paymentSucceeded(
     // parts; the rest stays in escrow until the customer confirms.
     if (row.partsAmount > 0 && job.providerId) {
       const line = releaseLine(row.id, 'PARTS', row.partsAmount, await commissionRates(tx));
-      await tx.insert(releases).values({
-        id: newId('rel'),
-        jobId: job.id,
-        providerId: job.providerId,
-        lines: [line],
-        gross: line.gross,
-        commission: line.commission,
-        net: line.gross - line.commission,
-        createdAt: at,
-      });
+      await createRelease(tx, { jobId: job.id, providerId: job.providerId, lines: [line] }, at);
     }
     // The agreed price is in escrow: work can start.
     await moveJob(tx, job, 'IN_PROGRESS', 'SYSTEM', at, { metadata });
@@ -239,16 +238,11 @@ export async function paymentSucceeded(
   }
   // The job moved on while the customer was paying (e.g. they cancelled
   // with the PIN prompt still open): give the money back.
-  await tx.insert(refunds).values({
-    id: newId('ref'),
-    jobId: job.id,
-    paymentId,
-    amount: row.amount,
-    reason: 'job_closed_before_payment',
-    status: 'PENDING',
-    createdAt: at,
-    updatedAt: at,
-  });
+  await createRefund(
+    tx,
+    { jobId: job.id, customerId: job.customerId, paymentId, amount: row.amount, reason: 'job_closed_before_payment' },
+    at,
+  );
 }
 
 /** The customer cancelled the prompt, had too little money, or never answered. */
