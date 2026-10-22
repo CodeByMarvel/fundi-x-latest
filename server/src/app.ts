@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import { appleVerifier } from './accounts/apple';
+import { registerPlaceRoutes } from './accounts/places';
 import { registerAccountRoutes, type AccountsConfig } from './accounts/routes';
 import { googleVerifier } from './admin/google';
 import { registerAdminRoutes, type AdminConfig } from './admin/routes';
@@ -122,6 +123,7 @@ export function buildApp({
   app.get('/health', async () => ({ ok: true }));
   registerJobRoutes(app, db);
   registerProviderRoutes(app, db);
+  registerPlaceRoutes(app, db);
   registerPaymentRoutes(app, db, { simulatePayments, mpesa });
   if (mpesaCallbacks) {
     registerMpesaCallbacks(app, db, mpesaCallbacks);

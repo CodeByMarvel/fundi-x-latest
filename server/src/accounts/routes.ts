@@ -10,6 +10,7 @@ import { jobs, providers, users, type UserRole } from '../db/schema';
 import { BadRequestError, ConflictError, ForbiddenError } from '../errors';
 import { newId } from '../ids';
 import type { AppleVerifier } from './apple';
+import { forgetPlaces } from './places';
 import { normalizeKenyanPhone } from './phone';
 import { createAppSession, revokeAllAppSessions, revokeAppSession } from './sessions';
 
@@ -352,6 +353,7 @@ export function registerAccountRoutes(
         .set({ online: false, lat: null, lng: null, h3Cell: null, locationAt: null })
         .where(eq(providers.userId, user.id));
       await revokeAllAppSessions(tx, user.id);
+      await forgetPlaces(tx, user.id);
     });
     return { ok: true };
   });

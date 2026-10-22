@@ -8,7 +8,9 @@ import { jobs, providers, releases, reliabilityEvents, users } from '../db/schem
 import { estimateEtaMinutes } from '../jobs/actions';
 import { saveJob, toJob } from '../jobs/store';
 import { ConflictError, NotFoundError } from '../errors';
-import { matchingCell, metresBetween } from '../matching/h3';
+import { cellsWithin, matchingCell, metresBetween } from '../matching/h3';
+import { eligibleProviders } from '../matching/service';
+import { getSetting } from '../settings';
 import { toRelease } from '../payments/service';
 
 const coordsSchema = {
@@ -22,6 +24,9 @@ const coordsSchema = {
 } as const;
 
 type ProviderRow = typeof providers.$inferSelect;
+
+/** How many mechanics the customer's home screen lists. */
+const NEARBY_LIMIT = 10;
 
 /** What the mechanic's app shows about its own availability. */
 const availabilityView = (p: ProviderRow) => ({
@@ -183,6 +188,50 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
       const coords = toJob(job).location.coords;
       const km = lat !== null && lng !== null && coords ? metresBetween({ lat, lng }, coords) / 1000 : 0;
       return providerView(row.provider, row, km);
+    },
+  );
+
+  /**
+   * Mechanics free to take a job near the customer right now, for the
+   * home screen. The same area matching searches; nearest first. Distance
+   * is rounded up to the half kilometre and the phone number is left out:
+   * enough to choose, not enough to find someone.
+   */
+  app.get<{ Querystring: Coordinates }>(
+    '/providers/nearby',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['lat', 'lng'],
+          properties: {
+            lat: { type: 'number', minimum: -90, maximum: 90 },
+            lng: { type: 'number', minimum: -180, maximum: 180 },
+          },
+        },
+      },
+    },
+    async request => {
+      requireCustomer(request);
+      const here = request.query;
+      const ring = await getSetting(db, 'matching_max_ring');
+      const rows = await eligibleProviders(db, new Date(), {
+        cells: cellsWithin(matchingCell(here), ring),
+        exclude: [],
+      });
+      const nearest = rows
+        .map(r => ({ id: r.id, metres: metresBetween(here, { lat: r.lat!, lng: r.lng! }) }))
+        .sort((a, b) => a.metres - b.metres)
+        .slice(0, NEARBY_LIMIT);
+      const found = await Promise.all(nearest.map(n => withUser(n.id)));
+      return nearest.flatMap((n, i) => {
+        const row = found[i];
+        if (!row) {
+          return [];
+        }
+        const km = Math.max(0.5, Math.ceil(n.metres / 500) / 2);
+        return [{ ...providerView(row.provider, row, km), phone: '' }];
+      });
     },
   );
 

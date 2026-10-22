@@ -7,7 +7,6 @@ import {
   useActiveJob,
   useJobLedger,
   useLatestCompletedJob,
-  useProviders,
 } from '../../data/useJob';
 import { formatKes } from '../../domain/money';
 import { formatDate } from '../../shared/format';
@@ -21,7 +20,8 @@ import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { ProviderCard } from '../components/home/ProviderCard';
 import { ProviderTypeCard } from '../components/home/ProviderTypeCard';
 import { RecentServiceCard } from '../components/home/RecentServiceCard';
-import { customer } from '../data/mockHome';
+import { useCustomerProfile } from '../data/currentCustomer';
+import { useNearbyProviders } from '../data/nearby';
 import { vehicleName } from '../data/mockVehicles';
 import { customerJobView, jobProgress } from '../jobs/jobPresentation';
 import { getCategory } from '../request/data/categories';
@@ -31,7 +31,8 @@ export function HomeScreen() {
   const activeJob = useActiveJob();
   const recentJob = useLatestCompletedJob();
   const recentLedger = useJobLedger(recentJob?.id ?? '');
-  const providers = useProviders();
+  const providers = useNearbyProviders();
+  const customer = useCustomerProfile();
   const tabBarSpace = useFloatingTabBarSpace();
   const navigation =
     useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();

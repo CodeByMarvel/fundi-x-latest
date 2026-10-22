@@ -1,7 +1,15 @@
 import { Car, ChevronRight } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../../shared/theme/colors';
-import { RecentService } from '../../data/mockHome';
+
+/** The customer's latest finished job, as the home screen shows it. */
+export type RecentService = {
+  id: string;
+  car: string;
+  service: string;
+  date: string;
+  price: string;
+};
 
 type Props = {
   service: RecentService;

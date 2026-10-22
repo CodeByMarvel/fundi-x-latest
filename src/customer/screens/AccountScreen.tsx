@@ -1,4 +1,4 @@
-import { Car, CircleHelp, Mail, Shield, Smartphone } from 'lucide-react-native';
+import { Briefcase, Car, CircleHelp, House, Mail, Shield, Smartphone } from 'lucide-react-native';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '../../shared/components/Avatar';
@@ -8,10 +8,10 @@ import {
   SettingsRow,
 } from '../../shared/components/SettingsList';
 import { AccountActions, useSignedInAccount } from '../../auth/AccountActions';
-import { formatPhone } from '../../domain/billing/types';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
-import { customer } from '../data/mockHome';
+import { useCustomerProfile } from '../data/currentCustomer';
+import { useSavedPlaces } from '../data/places';
 import { mockVehicles, vehicleName } from '../data/mockVehicles';
 
 const comingSoon = (what: string) => () =>
@@ -22,9 +22,11 @@ export function AccountScreen() {
   const tabBarSpace = useFloatingTabBarSpace();
   // The signed-in account's details; demo mode shows the sample customer.
   const account = useSignedInAccount();
+  const customer = useCustomerProfile();
+  const { home, work } = useSavedPlaces();
   const fullName = account?.name ?? `${customer.firstName} ${customer.lastName}`;
-  const phone = account ? (account.phone ? formatPhone(account.phone) : 'Not set') : customer.mpesaPhone;
-  const email = account ? account.email ?? 'Not set' : customer.email;
+  const phone = customer.mpesaPhone || 'Not set';
+  const email = customer.email || 'Not set';
 
   return (
     <ScrollView
@@ -38,7 +40,7 @@ export function AccountScreen() {
         <Avatar name={fullName} size={64} />
         <View>
           <Text style={styles.name}>{fullName}</Text>
-          <Text style={styles.meta}>{customer.location}</Text>
+          {!!customer.location && <Text style={styles.meta}>{customer.location}</Text>}
         </View>
       </View>
 
@@ -53,6 +55,14 @@ export function AccountScreen() {
               value={v.registration}
             />
           ))}
+        </SettingsList>
+      </View>
+
+      <View style={styles.section}>
+        <SectionTitle>Saved places</SectionTitle>
+        <SettingsList>
+          <SettingsRow Icon={House} label="Home" value={home?.address ?? 'Save it when you book'} />
+          <SettingsRow Icon={Briefcase} label="Work" value={work?.address ?? 'Save it when you book'} />
         </SettingsList>
       </View>
 

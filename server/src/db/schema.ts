@@ -685,3 +685,24 @@ export const transfers = pgTable(
     uniqueIndex('transfers_refund_idx').on(t.refundId),
   ],
 );
+
+/**
+ * A customer's saved places ("Home", "Work"), offered first when booking.
+ * One of each kind per person; saving again replaces it. Deleted with the
+ * account (personal data, not a record the books need).
+ */
+export const savedPlaces = pgTable(
+  'saved_places',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    kind: text('kind').$type<'home' | 'work'>().notNull(),
+    /** In the customer's words, e.g. "Kileleshwa, off Othaya Road". */
+    address: text('address').notNull(),
+    lat: doublePrecision('lat').notNull(),
+    lng: doublePrecision('lng').notNull(),
+    updatedAt: updatedAt(),
+  },
+  t => [uniqueIndex('saved_places_user_kind_idx').on(t.userId, t.kind)],
+);

@@ -5,7 +5,7 @@ import {
   isTerminalStatus,
 } from '../../../src/domain/jobs/transitions';
 import type { Job, JobStatus } from '../../../src/domain/jobs/types';
-import type { Tx } from '../db/client';
+import type { Database, Tx } from '../db/client';
 import {
   jobEvents,
   jobMatching,
@@ -205,8 +205,12 @@ async function bestCandidate(
  * Providers who could take a job right now: verified, active, online,
  * with a recent position, and not busy (no unfinished job, no open offer).
  */
-function eligibleProviders(
-  tx: Tx,
+/**
+ * Providers who could take a job right now: online, verified, active, a
+ * fresh position, not busy. Also lists "nearby" mechanics for customers.
+ */
+export function eligibleProviders(
+  tx: Tx | Database,
   now: Date,
   filter: { cells: string[]; exclude: string[] } | { only: string },
 ) {

@@ -1,7 +1,7 @@
 import { Building2, MapPin, Star, Wrench } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../../shared/theme/colors';
-import { Provider } from '../../data/mockHome';
+import { Provider } from '../../../domain/providers/types';
 
 type Props = {
   provider: Provider;

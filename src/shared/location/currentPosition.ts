@@ -31,15 +31,16 @@ async function permitted(): Promise<boolean> {
 /**
  * Where the phone is now (GPS, or the network when GPS is slow). Accepts
  * a fix up to 15 s old, so a report every 30 s doesn't wake GPS twice.
+ * `purpose` finishes the sentence "Turn on location to …".
  */
-export async function currentPosition(): Promise<Coordinates> {
+export async function currentPosition(purpose = 'go online'): Promise<Coordinates> {
   if (!(await permitted())) {
-    throw new LocationError('Allow Fundi-X to use your location to go online.');
+    throw new LocationError(`Allow Fundi-X to use your location to ${purpose}.`);
   }
   return new Promise((resolve, reject) =>
     Geolocation.getCurrentPosition(
       ({ coords }) => resolve({ lat: coords.latitude, lng: coords.longitude }),
-      () => reject(new LocationError('Turn on location to go online.')),
+      () => reject(new LocationError(`Turn on location to ${purpose}.`)),
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 15_000 },
     ),
   );

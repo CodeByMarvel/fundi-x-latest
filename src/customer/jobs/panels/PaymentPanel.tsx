@@ -12,7 +12,7 @@ import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { TextField } from '../../../shared/components/TextField';
 import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
 import { colors } from '../../../shared/theme/colors';
-import { customer } from '../../data/mockHome';
+import { useCustomerProfile } from '../../data/currentCustomer';
 import { paymentFailureText } from '../jobPresentation';
 import { SimulatedPhonePrompt } from './SimulatedPhonePrompt';
 
@@ -27,7 +27,8 @@ import { SimulatedPhonePrompt } from './SimulatedPhonePrompt';
  */
 export function PaymentPanel({ job, quote }: { job: Job; quote?: Quote }) {
   const ledger = useJobLedger(job.id);
-  const [phone, setPhone] = useState(customer.mpesaPhone);
+  const { mpesaPhone } = useCustomerProfile();
+  const [phone, setPhone] = useState(mpesaPhone);
   const { pending, run } = useAsyncAction<'pay'>();
 
   const purpose: MoneyPurpose =

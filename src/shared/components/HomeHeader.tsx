@@ -4,7 +4,8 @@ import { colors } from '../theme/colors';
 
 type Props = {
   firstName: string;
-  location: string;
+  /** Their area; the row is left out when empty. */
+  location?: string;
   onNotificationsPress?: () => void;
 };
 
@@ -17,10 +18,12 @@ export function HomeHeader({
     <View style={styles.row}>
       <View>
         <Text style={styles.greeting}>👋 Hi, {firstName}</Text>
-        <View style={styles.locationRow}>
-          <MapPin color={colors.textGrey} size={14} />
-          <Text style={styles.location}>{location}</Text>
-        </View>
+        {!!location && (
+          <View style={styles.locationRow}>
+            <MapPin color={colors.textGrey} size={14} />
+            <Text style={styles.location}>{location}</Text>
+          </View>
+        )}
       </View>
       <Pressable
         style={styles.bell}

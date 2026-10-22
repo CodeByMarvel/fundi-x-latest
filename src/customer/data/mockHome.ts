@@ -1,16 +1,7 @@
 /**
- * Placeholder data for the customer home screen until the backend exists.
+ * Demo mode's sample customer. Signed in, the account comes from the
+ * server instead (see currentCustomer.ts).
  */
-
-export type { Provider, ProviderType } from '../../domain/providers/types';
-
-export type RecentService = {
-  id: string;
-  car: string;
-  service: string;
-  date: string;
-  price: string;
-};
 
 export const customer = {
   firstName: 'Lenny',
