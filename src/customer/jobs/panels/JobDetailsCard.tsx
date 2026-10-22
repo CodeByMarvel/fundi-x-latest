@@ -1,7 +1,7 @@
 import { Text } from 'react-native';
 import { Job } from '../../../domain/jobs/types';
 import { Card, Detail, textStyles } from '../../../shared/components/Card';
-import { vehicleName } from '../../data/mockVehicles';
+import { vehicleName } from '../../../domain/jobs/request';
 import { getCategory } from '../../request/data/categories';
 
 /** What the customer asked for, shown at every stage. */

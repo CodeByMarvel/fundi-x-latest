@@ -48,3 +48,8 @@ export type ScheduledFor = {
 
 /** Question id -> selected option ids. */
 export type Answers = Record<string, string[]>;
+
+/** "2015 Toyota Fielder", for lists and job cards. */
+export function vehicleName(v: Vehicle) {
+  return [v.year, v.make, v.model].filter(Boolean).join(' ');
+}

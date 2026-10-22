@@ -1,30 +1,42 @@
 import { Car, Plus } from 'lucide-react-native';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ServerError } from '../../../auth/api';
 import type { Fuel } from '../../../domain/jobs/request';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { colors } from '../../../shared/theme/colors';
-import { vehicleName } from '../../data/mockVehicles';
+import { vehicleName } from '../../../domain/jobs/request';
 import { OptionCard } from '../components/OptionCard';
 import { StepLayout } from '../components/StepLayout';
+import { VehicleInput } from '../../data/vehicles';
 import { Vehicle } from '../types';
 import { StepProps } from './stepProps';
 
 type Props = StepProps & {
-  vehicles: Vehicle[];
-  onAddVehicle: (vehicle: Vehicle) => void;
+  /** `null` while "My vehicles" is still loading. */
+  vehicles: Vehicle[] | null;
+  /** Saves it to "My vehicles" and returns it with its id. */
+  onAddVehicle: (vehicle: VehicleInput) => Promise<Vehicle>;
 };
 
 export function VehicleStep({ draft, onNext, vehicles, onAddVehicle }: Props) {
-  const [adding, setAdding] = useState(vehicles.length === 0);
+  const [adding, setAdding] = useState(false);
 
-  if (adding) {
+  if (!vehicles) {
+    return (
+      <StepLayout title="Which vehicle needs help?">
+        <ActivityIndicator color={colors.primary} />
+      </StepLayout>
+    );
+  }
+
+  if (adding || vehicles.length === 0) {
     return (
       <AddVehicleForm
         canCancel={vehicles.length > 0}
         onCancel={() => setAdding(false)}
-        onSave={vehicle => {
-          onAddVehicle(vehicle);
+        onSave={async input => {
+          const vehicle = await onAddVehicle(input);
           onNext({ vehicleId: vehicle.id });
         }}
       />
@@ -55,32 +67,41 @@ export function VehicleStep({ draft, onNext, vehicles, onAddVehicle }: Props) {
 type FormProps = {
   canCancel: boolean;
   onCancel: () => void;
-  onSave: (vehicle: Vehicle) => void;
+  onSave: (vehicle: VehicleInput) => Promise<void>;
 };
 
-function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
+/** Booking's "add a vehicle" step, and the account screen's. */
+export function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
   const [registration, setRegistration] = useState('');
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [engineCc, setEngineCc] = useState('');
   const [fuel, setFuel] = useState<Fuel>();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const valid = registration.trim() && make.trim() && model.trim();
 
-  const save = () => {
+  const save = async () => {
     const parsedYear = parseInt(year, 10);
     const parsedCc = parseInt(engineCc, 10);
-    onSave({
-      // TODO: replace with the id the backend returns.
-      id: `local-${Date.now()}`,
-      registration: registration.trim().toUpperCase(),
-      make: make.trim(),
-      model: model.trim(),
-      year: Number.isNaN(parsedYear) ? undefined : parsedYear,
-      ...(parsedCc >= 50 && parsedCc <= 10000 && { engineCc: parsedCc }),
-      ...(fuel && { fuel }),
-    });
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        registration: registration.trim().toUpperCase(),
+        make: make.trim(),
+        model: model.trim(),
+        ...(parsedYear >= 1950 && parsedYear <= 2100 && { year: parsedYear }),
+        ...(parsedCc >= 50 && parsedCc <= 10000 && { engineCc: parsedCc }),
+        ...(fuel && { fuel }),
+      });
+    } catch (err) {
+      // e.g. "KDA 123A is already in your vehicles", or no connection.
+      setError(err instanceof ServerError ? err.message : 'Could not save. Please try again.');
+      setSaving(false);
+    }
   };
 
   return (
@@ -89,10 +110,12 @@ function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
       subtitle="Just the basics for now. You can add more details later."
       footer={
         <>
+          {error && <Text style={styles.error}>{error}</Text>}
           <PrimaryButton
             label="Save vehicle"
             onPress={save}
             disabled={!valid}
+            loading={saving}
           />
           {canCancel && (
             <PrimaryButton label="Cancel" variant="ghost" onPress={onCancel} />
@@ -224,6 +247,12 @@ const styles = StyleSheet.create({
   chipTextSelected: {
     fontWeight: '600',
     color: colors.primary,
+  },
+  error: {
+    fontSize: 14,
+    color: colors.error,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   hint: {
     marginTop: 6,

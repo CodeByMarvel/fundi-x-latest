@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { vehicleName } from '../../customer/data/mockVehicles';
+import { vehicleName } from '../../domain/jobs/request';
 import { getCategory } from '../../customer/request/data/categories';
 import { jobRepository } from '../../data/backend';
 import {

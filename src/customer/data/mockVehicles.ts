@@ -1,6 +1,6 @@
 import { Vehicle } from '../request/types';
 
-/** Placeholder garage until vehicles come from the backend. */
+/** Demo mode's sample vehicles. Signed in, they come from the server. */
 export const mockVehicles: Vehicle[] = [
   {
     id: 'v1',
@@ -17,7 +17,3 @@ export const mockVehicles: Vehicle[] = [
     registration: 'KXX 456B',
   },
 ];
-
-export function vehicleName(v: Vehicle) {
-  return [v.year, v.make, v.model].filter(Boolean).join(' ');
-}

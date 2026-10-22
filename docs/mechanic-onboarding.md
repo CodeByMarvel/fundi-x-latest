@@ -2,7 +2,7 @@
 
 Status: **agreed design, not built** (brainstormed 2026-10-22).
 
-How a mechanic or garage goes from "signed in with Google" to "can go
+How a mobile mechanic goes from "signed in with Google" to "can go
 online and receive jobs". Today it is: phone number, one profile screen
 (type, business name, free-text specialty), then PENDING until someone at
 Fundi-X verifies them in the admin portal. This replaces that.
@@ -14,7 +14,7 @@ Fundi-X verifies them in the admin portal. This replaces that.
 | How strict at launch | **Standard**: ID + selfie + Certificate of Good Conduct + M-Pesa name match + a phone call. Trade certificate optional. |
 | Skills | **Filter matching by skill**: a mechanic is only offered jobs in categories they picked. |
 | Work area | **Home base + travel distance**: matching still uses live GPS, but never offers a job beyond their limit from base. |
-| Garages | **One account per garage** for now; team members later. |
+| Garages | **Parked** (2026-10-22): mobile mechanics first. Garages are hidden in the app; see garage-providers.md. |
 
 ## The stages
 
@@ -26,14 +26,13 @@ Google sign-in (Apple on iOS later), phone number.
 
 ### 2. Profile
 - Profile photo (shown to customers when the mechanic is on the way).
-- Type: mobile mechanic or garage; garage name for garages.
+- Mobile mechanics only for now (garages parked).
 - **Skills**: picked from the job categories (the same ids as
   `src/customer/request/data/categories`), at least one.
 - Years of experience.
 - Transport: motorbike, car, public transport, none (garage).
 - **Base**: set from GPS where they are, plus a description; **travel
-  limit** in km (e.g. 3 / 5 / 10 / 15). Garages: the base is the garage,
-  plus opening hours.
+  limit** in km (e.g. 3 / 5 / 10 / 15).
 
 ### 3. Documents
 - National ID, front and back.
@@ -41,8 +40,6 @@ Google sign-in (Apple on iOS later), phone number.
   matching at launch).
 - Certificate of Good Conduct (DCI), with its issue date. Valid 12 months.
 - Optional: trade certificate (NITA, TVET…).
-- Garages: business permit (county single business permit), 2–4 photos of
-  the premises.
 
 Storage: private S3-compatible bucket (proposed: Cloudflare R2), files
 encrypted, never public; the app uploads with a short-lived upload link,
@@ -89,7 +86,6 @@ Plus a phone call before approving (logged as a note).
   rejection, account lifetime + 1 year for approved).
 - Whether to list categories as "skills" exactly, or group them for
   mechanics (e.g. "Engine & servicing").
-- Garage teams (each mechanic with their own login, payouts to the garage).
 
 ## Proposed build order
 

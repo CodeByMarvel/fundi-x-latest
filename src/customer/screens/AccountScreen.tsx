@@ -1,4 +1,6 @@
-import { Briefcase, Car, CircleHelp, House, Mail, Shield, Smartphone } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Briefcase, Car, CircleHelp, House, Mail, Plus, Shield, Smartphone } from 'lucide-react-native';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Avatar } from '../../shared/components/Avatar';
@@ -12,7 +14,10 @@ import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions
 import { colors } from '../../shared/theme/colors';
 import { useCustomerProfile } from '../data/currentCustomer';
 import { useSavedPlaces } from '../data/places';
-import { mockVehicles, vehicleName } from '../data/mockVehicles';
+import { ServerError } from '../../auth/api';
+import { Vehicle, vehicleName } from '../../domain/jobs/request';
+import { useVehicles } from '../data/vehicles';
+import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 
 const comingSoon = (what: string) => () =>
   Alert.alert(what, 'This will be available once accounts are live.');
@@ -24,6 +29,25 @@ export function AccountScreen() {
   const account = useSignedInAccount();
   const customer = useCustomerProfile();
   const { home, work } = useSavedPlaces();
+  const { vehicles, remove } = useVehicles();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
+
+  const confirmRemove = (v: Vehicle) =>
+    Alert.alert(`Remove ${v.registration}?`, 'Past jobs for this vehicle stay in your activity.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () =>
+          remove(v.id).catch(err =>
+            Alert.alert(
+              "Couldn't remove it",
+              err instanceof ServerError ? err.message : 'Please try again.',
+            ),
+          ),
+      },
+    ]);
   const fullName = account?.name ?? `${customer.firstName} ${customer.lastName}`;
   const phone = customer.mpesaPhone || 'Not set';
   const email = customer.email || 'Not set';
@@ -47,14 +71,20 @@ export function AccountScreen() {
       <View style={styles.section}>
         <SectionTitle>My vehicles</SectionTitle>
         <SettingsList>
-          {mockVehicles.map(v => (
+          {(vehicles ?? []).map(v => (
             <SettingsRow
               key={v.id}
               Icon={Car}
               label={vehicleName(v)}
               value={v.registration}
+              onPress={() => confirmRemove(v)}
             />
           ))}
+          <SettingsRow
+            Icon={Plus}
+            label="Add a vehicle"
+            onPress={() => navigation.navigate('AddVehicle')}
+          />
         </SettingsList>
       </View>
 

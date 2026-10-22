@@ -131,7 +131,7 @@ test('a mechanic is asked for their work profile after the phone number', async 
     }),
   });
   await start();
-  await press("I'm a mechanic or garage");
+  await press("I'm a mechanic");
   await press('Continue with Google');
   await type('0712 345 678', '0722000111');
   await press('Continue');

@@ -706,3 +706,36 @@ export const savedPlaces = pgTable(
   },
   t => [uniqueIndex('saved_places_user_kind_idx').on(t.userId, t.kind)],
 );
+
+/**
+ * A customer's vehicles ("My vehicles"). A booking copies the vehicle into
+ * the job, so editing or removing one never changes a past job or price.
+ * Removing hides it (removed_at); the same car can be added again later.
+ */
+export const vehicles = pgTable(
+  'vehicles',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    /** As shown: upper case, single spaces ("KDA 123A"). */
+    registration: text('registration').notNull(),
+    /** Letters and digits only ("KDA123A"): one car, however it's typed. */
+    registrationKey: text('registration_key').notNull(),
+    make: text('make').notNull(),
+    model: text('model').notNull(),
+    year: integer('year'),
+    /** Decide the maintenance price class (with fuel), when known. */
+    engineCc: integer('engine_cc'),
+    fuel: text('fuel').$type<'petrol' | 'diesel' | 'hybrid' | 'electric'>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+  },
+  t => [
+    uniqueIndex('vehicles_user_registration_idx')
+      .on(t.userId, t.registrationKey)
+      .where(sql`removed_at is null`),
+  ],
+);

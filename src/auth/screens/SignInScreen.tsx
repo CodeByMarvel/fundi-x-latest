@@ -14,7 +14,7 @@ const CHOICES: { role: AccountRole; title: string; detail: string }[] = [
   },
   {
     role: 'provider',
-    title: "I'm a mechanic or garage",
+    title: "I'm a mechanic",
     detail: 'Get jobs near you and get paid through M-Pesa',
   },
 ];

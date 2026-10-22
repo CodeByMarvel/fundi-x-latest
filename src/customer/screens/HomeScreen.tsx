@@ -1,6 +1,6 @@
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Building2, Wrench } from 'lucide-react-native';
+import { Wrench } from 'lucide-react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -22,7 +22,7 @@ import { ProviderTypeCard } from '../components/home/ProviderTypeCard';
 import { RecentServiceCard } from '../components/home/RecentServiceCard';
 import { useCustomerProfile } from '../data/currentCustomer';
 import { useNearbyProviders } from '../data/nearby';
-import { vehicleName } from '../data/mockVehicles';
+import { vehicleName } from '../../domain/jobs/request';
 import { customerJobView, jobProgress } from '../jobs/jobPresentation';
 import { getCategory } from '../request/data/categories';
 
@@ -73,11 +73,6 @@ export function HomeScreen() {
           <ProviderTypeCard
             label="Mechanic"
             Icon={Wrench}
-            onPress={() => navigation.navigate('RequestFlow')}
-          />
-          <ProviderTypeCard
-            label="Garage"
-            Icon={Building2}
             onPress={() => navigation.navigate('RequestFlow')}
           />
         </View>

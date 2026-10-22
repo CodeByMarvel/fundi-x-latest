@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { vehicleName } from '../../../customer/data/mockVehicles';
+import { vehicleName } from '../../../domain/jobs/request';
 import { getCategory } from '../../../customer/request/data/categories';
 import { Job } from '../../../domain/jobs/types';
 import { useNow } from '../../../shared/hooks/useNow';

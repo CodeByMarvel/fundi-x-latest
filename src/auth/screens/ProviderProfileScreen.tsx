@@ -7,10 +7,11 @@ import { ServerError } from '../api';
 import { useAuth } from '../AuthContext';
 import { AuthLayout, ErrorText } from './AuthLayout';
 
-const TYPES = [
+// Garages are parked while Fundi-X starts with mobile mechanics (see
+// docs/garage-providers.md). Adding the entry back brings the picker back.
+const TYPES: readonly { type: 'mechanic' | 'garage'; label: string }[] = [
   { type: 'mechanic', label: 'Mobile mechanic' },
-  { type: 'garage', label: 'Garage' },
-] as const;
+];
 
 /** A new mechanic's profile. Fundi-X verifies it before any job is offered. */
 export function ProviderProfileScreen() {
@@ -56,23 +57,28 @@ export function ProviderProfileScreen() {
         />
       }
     >
-      <View style={styles.types}>
-        {TYPES.map(t => (
-          <Pressable
-            key={t.type}
-            onPress={() => setType(t.type)}
-            style={[styles.type, type === t.type && styles.typeOn]}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: type === t.type }}
-          >
-            <Text
-              style={[styles.typeLabel, type === t.type && styles.typeLabelOn]}
+      {TYPES.length > 1 && (
+        <View style={styles.types}>
+          {TYPES.map(t => (
+            <Pressable
+              key={t.type}
+              onPress={() => setType(t.type)}
+              style={[styles.type, type === t.type && styles.typeOn]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: type === t.type }}
             >
-              {t.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+              <Text
+                style={[
+                  styles.typeLabel,
+                  type === t.type && styles.typeLabelOn,
+                ]}
+              >
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
       {type === 'garage' && (
         <TextField
           label="Garage name"

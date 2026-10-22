@@ -4,7 +4,7 @@ import { Briefcase, ChevronRight } from 'lucide-react-native';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { vehicleName } from '../../customer/data/mockVehicles';
+import { vehicleName } from '../../domain/jobs/request';
 import { getCategory } from '../../customer/request/data/categories';
 import {
   useJobLedger,

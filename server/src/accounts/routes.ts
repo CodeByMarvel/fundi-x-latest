@@ -11,6 +11,7 @@ import { BadRequestError, ConflictError, ForbiddenError } from '../errors';
 import { newId } from '../ids';
 import type { AppleVerifier } from './apple';
 import { forgetPlaces } from './places';
+import { forgetVehicles } from './vehicles';
 import { normalizeKenyanPhone } from './phone';
 import { createAppSession, revokeAllAppSessions, revokeAppSession } from './sessions';
 
@@ -354,6 +355,7 @@ export function registerAccountRoutes(
         .where(eq(providers.userId, user.id));
       await revokeAllAppSessions(tx, user.id);
       await forgetPlaces(tx, user.id);
+      await forgetVehicles(tx, user.id, new Date());
     });
     return { ok: true };
   });

@@ -1,6 +1,6 @@
 import { ChevronRight, MapPin, Wrench } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { vehicleName } from '../../../customer/data/mockVehicles';
+import { vehicleName } from '../../../domain/jobs/request';
 import { getCategory } from '../../../customer/request/data/categories';
 import { Job } from '../../../domain/jobs/types';
 import { colors } from '../../../shared/theme/colors';

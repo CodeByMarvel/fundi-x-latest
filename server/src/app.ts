@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import { appleVerifier } from './accounts/apple';
 import { registerPlaceRoutes } from './accounts/places';
+import { registerVehicleRoutes } from './accounts/vehicles';
 import { registerAccountRoutes, type AccountsConfig } from './accounts/routes';
 import { googleVerifier } from './admin/google';
 import { registerAdminRoutes, type AdminConfig } from './admin/routes';
@@ -124,6 +125,7 @@ export function buildApp({
   registerJobRoutes(app, db);
   registerProviderRoutes(app, db);
   registerPlaceRoutes(app, db);
+  registerVehicleRoutes(app, db);
   registerPaymentRoutes(app, db, { simulatePayments, mpesa });
   if (mpesaCallbacks) {
     registerMpesaCallbacks(app, db, mpesaCallbacks);

@@ -17,7 +17,7 @@ import { QuoteItemInput } from '../../../domain/quotes/types';
 import { PrimaryButton } from '../../../shared/components/PrimaryButton';
 import { QuoteItemsList } from '../../../shared/components/QuoteItemsList';
 import { colors } from '../../../shared/theme/colors';
-import { vehicleName } from '../../data/mockVehicles';
+import { vehicleName } from '../../../domain/jobs/request';
 import { OptionCard } from '../components/OptionCard';
 import { StepLayout } from '../components/StepLayout';
 import { getCategory } from '../data/categories';

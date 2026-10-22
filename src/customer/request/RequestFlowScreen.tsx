@@ -15,7 +15,7 @@ import {
   PriceEstimate,
 } from '../../domain/pricing/PricingService';
 import { colors } from '../../shared/theme/colors';
-import { mockVehicles } from '../data/mockVehicles';
+import { useVehicles } from '../data/vehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { RequestHeader } from './components/RequestHeader';
 import { QUESTIONS } from './data/questions';
@@ -39,7 +39,7 @@ import { QuestionStep } from './steps/QuestionStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { UrgencyStep } from './steps/UrgencyStep';
 import { VehicleStep } from './steps/VehicleStep';
-import { EMPTY_DRAFT, RequestDraft, Vehicle } from './types';
+import { EMPTY_DRAFT, RequestDraft } from './types';
 
 type Props = NativeStackScreenProps<CustomerStackParamList, 'RequestFlow'>;
 
@@ -55,8 +55,7 @@ export function RequestFlowScreen({ navigation, route }: Props) {
     preset ? ['vehicle'] : ['need'],
   );
   const [editingFromReview, setEditingFromReview] = useState(false);
-  // TODO: load from and save to the customer's garage on the backend.
-  const [vehicles, setVehicles] = useState<Vehicle[]>(mockVehicles);
+  const { vehicles, add: addVehicle } = useVehicles();
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
 
@@ -69,7 +68,7 @@ export function RequestFlowScreen({ navigation, route }: Props) {
   const [priceRequest, setPriceRequest] = useState(0);
 
   const step = history[history.length - 1];
-  const vehicle = vehicles.find(v => v.id === draft.vehicleId);
+  const vehicle = vehicles?.find(v => v.id === draft.vehicleId);
 
   // Ask Fundi-X for the price whenever the review step shows (or the request
   // changed). `active` drops answers that arrive after the customer moved on,
@@ -217,7 +216,7 @@ export function RequestFlowScreen({ navigation, route }: Props) {
           <VehicleStep
             {...props}
             vehicles={vehicles}
-            onAddVehicle={v => setVehicles(list => [...list, v])}
+            onAddVehicle={addVehicle}
           />
         );
       case 'category':

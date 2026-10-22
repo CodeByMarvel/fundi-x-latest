@@ -14,7 +14,7 @@ import { StatusPill } from '../../shared/components/StatusPill';
 import { formatDate } from '../../shared/format';
 import { useFloatingTabBarSpace } from '../../shared/navigation/tabScreenOptions';
 import { colors } from '../../shared/theme/colors';
-import { vehicleName } from '../data/mockVehicles';
+import { vehicleName } from '../../domain/jobs/request';
 import { customerJobView } from '../jobs/jobPresentation';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { getCategory } from '../request/data/categories';
