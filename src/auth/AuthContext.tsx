@@ -70,19 +70,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // The server's data only once the account is complete: until the phone
+  // (and a mechanic's profile) is in, the server refuses job calls.
   const token = state.status === 'signedIn' ? state.token : null;
-  const accountRole = state.status === 'signedIn' ? state.account.role : null;
+  const ready = state.status === 'signedIn' && state.account.nextStep === null;
+  const backendToken = ready ? token : null;
+  const accountRole = ready ? state.account.role : null;
 
   // Signed in: the app's data comes from the server, as this account.
   // Otherwise the simulation (demo mode). Layout effect: switched before
   // any screen's own effects start loading data.
   useLayoutEffect(() => {
-    if (token && accountRole) {
-      selectServerBackend(token, accountRole);
+    if (backendToken && accountRole) {
+      selectServerBackend(backendToken, accountRole);
     } else {
       selectMockBackend();
     }
-  }, [token, accountRole]);
+  }, [backendToken, accountRole]);
 
   const signInWithGoogle = useCallback(async (role: AccountRole) => {
     const { googleClientId } = await authApi.config();
