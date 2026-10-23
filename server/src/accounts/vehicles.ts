@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import type { Fuel, Vehicle } from '../../../src/domain/jobs/request';
+import { type Fuel, normaliseRegistration, type Vehicle } from '../../../src/domain/jobs/request';
 import { requireCustomer } from '../auth';
 import type { Database, Tx } from '../db/client';
 import { vehicles } from '../db/schema';
@@ -22,11 +22,7 @@ const toVehicle = (row: VehicleRow): Vehicle => ({
   ...(row.fuel !== null && { fuel: row.fuel }),
 });
 
-/** "kda  123a" → "KDA 123A" (shown) and "KDA123A" (one car, however typed). */
-export function normaliseRegistration(input: string) {
-  const shown = input.trim().toUpperCase().replace(/\s+/g, ' ');
-  return { registration: shown, registrationKey: shown.replace(/[^A-Z0-9]/g, '') };
-}
+export { normaliseRegistration };
 
 const { id: _id, ...fields } = requestDetailsProperties.vehicle.properties;
 const vehicleBody = {

@@ -53,3 +53,33 @@ export type Answers = Record<string, string[]>;
 export function vehicleName(v: Vehicle) {
   return [v.year, v.make, v.model].filter(Boolean).join(' ');
 }
+
+/** "kda  123a" → "KDA 123A" (shown) and "KDA123A" (one car, however typed). */
+export function normaliseRegistration(input: string) {
+  const shown = input.trim().toUpperCase().replace(/\s+/g, ' ');
+  return {
+    registration: shown,
+    registrationKey: shown.replace(/[^A-Z0-9]/g, ''),
+  };
+}
+
+/** A vehicle's details without its id, e.g. to save it as a new one. */
+export function vehicleDetails(v: Vehicle): Omit<Vehicle, 'id'> {
+  const { registration, make, model, year, engineCc, fuel } = v;
+  return {
+    registration,
+    make,
+    model,
+    ...(year !== undefined && { year }),
+    ...(engineCc !== undefined && { engineCc }),
+    ...(fuel && { fuel }),
+  };
+}
+
+/** Whether two vehicles are the same car, however the plates were typed. */
+export const sameCar = (
+  a: Pick<Vehicle, 'registration'>,
+  b: Pick<Vehicle, 'registration'>,
+) =>
+  normaliseRegistration(a.registration).registrationKey ===
+  normaliseRegistration(b.registration).registrationKey;

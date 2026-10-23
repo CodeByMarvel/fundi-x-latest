@@ -85,6 +85,15 @@ export function sumItems(items: Pick<QuoteItem, 'total'>[]): Cents {
   return items.reduce((sum, item) => sum + item.total, 0);
 }
 
+/**
+ * The parts in a quote. Charged and paid like a fixed-price job's parts: the
+ * money goes to the mechanic as soon as it's paid, so they can buy them,
+ * with the smaller parts commission.
+ */
+export function partsTotal(items: Pick<QuoteItem, 'kind' | 'total'>[]): Cents {
+  return sumItems(items.filter(item => item.kind === 'PART'));
+}
+
 /** Additional quotes on a job, oldest first. */
 export function additionalQuotes(quotes: readonly Quote[], jobId: string) {
   return quotes.filter(q => q.jobId === jobId && q.kind === 'ADDITIONAL');

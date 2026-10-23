@@ -140,6 +140,26 @@ describe('paying for the work', () => {
     expect((await job(id)).status).toBe('IN_PROGRESS');
   });
 
+  it('pays a repair quote’s parts out to the mechanic straight away, like a service’s', async () => {
+    const id = await arrived();
+    await ok('POST', `/jobs/${id}/start-inspection`, BRIAN);
+    const quote = await ok('POST', `/jobs/${id}/quote`, BRIAN, {
+      items: [line('SHOCK_ABSORBER_FRONT', 6500, 2), line('LABOUR_SHOCKS', 2000)],
+    });
+    await ok('POST', `/jobs/${id}/approve-quote`, WANJIRU, { quoteId: quote.id });
+    const payment = await payAndAnswer(id);
+    expect(payment).toMatchObject({ purpose: 'SERVICE', amount: 1_500_000, partsAmount: 1_300_000 });
+
+    const money = await ok('GET', `/jobs/${id}/money`, WANJIRU);
+    expect(money.charges.filter((c: { purpose: string }) => c.purpose !== 'CALL_OUT')).toMatchObject([
+      { purpose: 'SERVICE', amount: 200_000, description: 'Agreed work' },
+      { purpose: 'PARTS', amount: 1_300_000, description: 'Parts' },
+    ]);
+    const [parts] = await ok('GET', '/provider/releases', BRIAN);
+    expect(parts.lines).toMatchObject([{ paymentId: payment.id, purpose: 'PARTS', gross: 1_300_000 }]);
+    expect((await job(id)).status).toBe('IN_PROGRESS');
+  });
+
   it('approves extra work by paying for it', async () => {
     const id = await arrived();
     await ok('POST', `/jobs/${id}/start-inspection`, BRIAN);
@@ -149,18 +169,21 @@ describe('paying for the work', () => {
     await ok('POST', `/jobs/${id}/approve-quote`, WANJIRU, { quoteId: quote.id });
     await payAndAnswer(id);
     const extra = await ok('POST', `/jobs/${id}/additional-quote`, BRIAN, {
-      items: [line('BRAKE_DISC_FRONT', 6000)],
+      items: [line('BRAKE_DISC_FRONT', 6000), line('LABOUR_BRAKE_SERVICE', 1000)],
       reason: 'Discs worn',
     });
 
     const payment = await payAndAnswer(id, 'pay', { phone: '0700000001', quoteId: extra.id });
-    expect(payment).toMatchObject({ purpose: 'SERVICE', amount: extra.total });
+    expect(payment).toMatchObject({ purpose: 'SERVICE', amount: extra.total, partsAmount: 600_000 });
     const quotes = await ok('GET', `/jobs/${id}/quotes`, WANJIRU);
     expect(quotes.find((q: { id: string }) => q.id === extra.id).status).toBe('APPROVED');
     const money = await ok('GET', `/jobs/${id}/money`, WANJIRU);
-    expect(money.charges.map((c: { description: string }) => c.description)).toContain(
-      'Additional: Discs worn',
+    expect(money.charges.map((c: { description: string }) => c.description)).toEqual(
+      expect.arrayContaining(['Additional: Discs worn', 'Additional parts: Discs worn']),
     );
+    // Both quotes' parts went to the mechanic as they were paid.
+    const releases = await ok('GET', '/provider/releases', BRIAN);
+    expect(releases.map((r: { gross: number }) => r.gross).sort()).toEqual([450_000, 600_000]);
     // The mechanic can finish now that nothing is waiting.
     expect((await ok('POST', `/jobs/${id}/complete`, BRIAN)).status).toBe('AWAITING_CONFIRMATION');
   });

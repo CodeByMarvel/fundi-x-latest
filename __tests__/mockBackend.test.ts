@@ -69,7 +69,9 @@ const ITEMS: QuoteItemInput[] = [
   line('BRAKE_PAD_FRONT', 2000, 2),
   line('LABOUR_BRAKE_PADS', 1500),
 ];
-const ITEMS_TOTAL = kes(4000 + 1500);
+// Parts are paid out to the mechanic when paid; labour waits in escrow.
+const PARTS = kes(4000);
+const LABOUR = kes(1500);
 const EXTRA: QuoteItemInput[] = [line('WIPER_BLADE', 600, 2)];
 
 beforeEach(() => jest.useFakeTimers());
@@ -466,11 +468,15 @@ describe('repair quotes', () => {
     const { b, job, quote } = await quotedJob();
     await run(b.jobs.approveQuote(job.id, quote.id));
     expect(status(b, job.id)).toBe('SERVICE_PAYMENT_PENDING');
-    expect(due(b, job.id, 'SERVICE')).toBe(ITEMS_TOTAL);
+    expect(due(b, job.id, 'SERVICE')).toBe(LABOUR);
+    expect(due(b, job.id, 'PARTS')).toBe(PARTS);
 
     await pay(b, job.id);
     expect(status(b, job.id)).toBe('IN_PROGRESS');
     expect(due(b, job.id, 'SERVICE')).toBe(0);
+    expect(due(b, job.id, 'PARTS')).toBe(0);
+    const [parts] = b.billing.getReleasesSnapshot();
+    expect(parts.lines).toMatchObject([{ purpose: 'PARTS', gross: PARTS }]);
   });
 
   it('closes the job if the approved price is never paid', async () => {
@@ -572,10 +578,11 @@ describe('completion', () => {
     await run(b.jobs.confirmCompletion(job.id));
     expect(status(b, job.id)).toBe('COMPLETED');
 
-    const [release] = b.billing.getReleasesSnapshot();
+    // The parts went when paid; the rest goes now.
+    const [, release] = b.billing.getReleasesSnapshot();
     expect(release.lines.map(l => l.purpose)).toEqual(['CALL_OUT', 'SERVICE']);
-    expect(release.gross).toBe(CALL_OUT + ITEMS_TOTAL);
-    expect(release.commission).toBe(kes(160) + kes(1100));
+    expect(release.gross).toBe(CALL_OUT + LABOUR);
+    expect(release.commission).toBe(kes(160) + kes(300));
     expect(release.net).toBe(release.gross - release.commission);
   });
 
@@ -583,7 +590,7 @@ describe('completion', () => {
     const { b, job } = await awaitingConfirmation();
     await jest.advanceTimersByTimeAsync(AUTO_CONFIRM_MS);
     expect(status(b, job.id)).toBe('COMPLETED');
-    expect(b.billing.getReleasesSnapshot()).toHaveLength(1);
+    expect(b.billing.getReleasesSnapshot()).toHaveLength(2); // parts, then the rest
   });
 });
 
@@ -597,7 +604,10 @@ describe('disputes', () => {
   it('holds the money while support reviews', async () => {
     const { b, job } = await disputed();
     expect(status(b, job.id)).toBe('DISPUTED');
-    expect(b.billing.getReleasesSnapshot()).toEqual([]);
+    // Only the parts, paid out before the work was done.
+    expect(
+      b.billing.getReleasesSnapshot().flatMap(r => r.lines.map(l => l.purpose)),
+    ).toEqual(['PARTS']);
     expect(b.billing.getRefundsSnapshot()).toEqual([]);
   });
 
@@ -615,9 +625,7 @@ describe('disputes', () => {
       note: 'Work was fine',
     });
     expect(status(b, job.id)).toBe('COMPLETED');
-    expect(b.billing.getReleasesSnapshot()[0].gross).toBe(
-      CALL_OUT + ITEMS_TOTAL,
-    );
+    expect(b.billing.getReleasesSnapshot()[1].gross).toBe(CALL_OUT + LABOUR);
   });
 
   it('refuses a split that does not divide exactly what is in escrow', async () => {
@@ -637,18 +645,18 @@ describe('disputes', () => {
     const { b, job } = await disputed();
     b.support.resolveDispute(job.id, {
       outcome: 'SPLIT',
-      customerRefund: kes(3000),
-      providerPayout: CALL_OUT + ITEMS_TOTAL - kes(3000),
+      customerRefund: kes(1000),
+      providerPayout: CALL_OUT + LABOUR - kes(1000),
       note: 'Partly fixed',
     });
     expect(b.jobs.getJobSnapshot(job.id)?.cancellation?.reason).toBe(
       'dispute_resolved',
     );
     expect(b.billing.getRefundsSnapshot().map(r => r.amount)).toEqual([
-      kes(3000),
+      kes(1000),
     ]);
-    expect(b.billing.getReleasesSnapshot()[0].gross).toBe(
-      CALL_OUT + ITEMS_TOTAL - kes(3000),
+    expect(b.billing.getReleasesSnapshot()[1].gross).toBe(
+      CALL_OUT + LABOUR - kes(1000),
     );
     expect(reliability(b)).toContain('dispute_split');
   });

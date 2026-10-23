@@ -9,13 +9,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { jobRepository, pricingService } from '../../data/backend';
+import {
+  normaliseRegistration,
+  sameCar,
+  Vehicle,
+  vehicleDetails,
+} from '../../domain/jobs/request';
 import { fixedTotal, PartsOption } from '../../domain/pricing/catalog';
 import {
   PriceChangedError,
   PriceEstimate,
 } from '../../domain/pricing/PricingService';
 import { colors } from '../../shared/theme/colors';
-import { useVehicles } from '../data/vehicles';
+import { useVehicles, VehicleInput } from '../data/vehicles';
 import type { CustomerStackParamList } from '../navigation/CustomerNavigator';
 import { RequestHeader } from './components/RequestHeader';
 import { QUESTIONS } from './data/questions';
@@ -55,7 +61,13 @@ export function RequestFlowScreen({ navigation, route }: Props) {
     preset ? ['vehicle'] : ['need'],
   );
   const [editingFromReview, setEditingFromReview] = useState(false);
-  const { vehicles, add: addVehicle } = useVehicles();
+  const { vehicles, add: saveVehicle } = useVehicles();
+  // A car typed in during this booking. Saved to "My vehicles" when the
+  // booking is sent, unless it's a car they're thinking of buying: they
+  // can save that one after the inspection (SaveVehiclePanel).
+  const [newVehicle, setNewVehicle] = useState<Vehicle>();
+  const choices =
+    vehicles && (newVehicle ? [newVehicle, ...vehicles] : vehicles);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
 
@@ -68,7 +80,35 @@ export function RequestFlowScreen({ navigation, route }: Props) {
   const [priceRequest, setPriceRequest] = useState(0);
 
   const step = history[history.length - 1];
-  const vehicle = vehicles?.find(v => v.id === draft.vehicleId);
+  const vehicle = choices?.find(v => v.id === draft.vehicleId);
+
+  const addVehicle = async (input: VehicleInput) => {
+    const typed = {
+      ...input,
+      registration: normaliseRegistration(input.registration).registration,
+    };
+    // Already one of theirs: book that one rather than a copy.
+    const saved = vehicles?.find(v => sameCar(v, typed));
+    if (saved) {
+      return saved;
+    }
+    const added = { ...typed, id: `new-${Date.now()}` };
+    setNewVehicle(added);
+    return added;
+  };
+
+  /** The car to book with: saved first, if it's theirs and new. */
+  const vehicleToBook = async () => {
+    if (!vehicle || vehicle !== newVehicle || isPurchaseInspection(draft)) {
+      return vehicle;
+    }
+    try {
+      return await saveVehicle(vehicleDetails(vehicle));
+    } catch {
+      // Not saved (offline, or saved meanwhile): still book with it.
+      return vehicle;
+    }
+  };
 
   // Ask Fundi-X for the price whenever the review step shows (or the request
   // changed). `active` drops answers that arrive after the customer moved on,
@@ -176,7 +216,7 @@ export function RequestFlowScreen({ navigation, route }: Props) {
       // the booking if they've changed since.
       const service = estimate.fixedService;
       const job = await jobRepository.createJob({
-        ...buildJobDetails(draft, vehicle),
+        ...buildJobDetails(draft, await vehicleToBook()),
         ...(service && service.parts.length > 0 && { partsOption }),
         acceptedPrice: {
           callOut: estimate.callOut,
@@ -215,7 +255,7 @@ export function RequestFlowScreen({ navigation, route }: Props) {
         return (
           <VehicleStep
             {...props}
-            vehicles={vehicles}
+            vehicles={choices}
             onAddVehicle={addVehicle}
           />
         );
@@ -277,3 +317,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+/** An inspection of a car they're buying: not theirs (yet). */
+function isPurchaseInspection(draft: RequestDraft) {
+  return (
+    draft.categoryId === 'inspection' &&
+    !!draft.answers['service.inspection_reason']?.includes('buying')
+  );
+}

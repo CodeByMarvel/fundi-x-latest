@@ -119,6 +119,8 @@ const SERVICE: JobRequestDetails = {
   categoryId: 'oil_service',
   answers: {},
   description: '',
+  // Not one of the customer's saved cars.
+  vehicle: { ...vehicle, id: 'new-1', registration: 'KDB 999X' },
 };
 
 function book(details: JobRequestDetails) {
@@ -213,7 +215,7 @@ it('renders every stage of a repair on both sides', async () => {
   await call(jobRepository.approveQuote(job.id, quote.id));
   screens = renderJob(job.id);
   expect(screens.customer).toContain('Pay to start');
-  expect(screens.customer).toContain('Held safely by Fundi-X');
+  expect(screens.customer).toContain('The parts money goes to your fundi now');
   expect(screens.mechanic).toContain('Don’t start work yet');
 
   await pay(job.id);
@@ -235,6 +237,7 @@ it('renders every stage of a repair on both sides', async () => {
   screens = renderJob(job.id);
   expect(screens.customer).toContain('Service completed');
   expect(screens.customer).toContain('Total paid');
+  expect(screens.customer).not.toContain('Keep this car?'); // already saved
   expect(screens.mechanic).toContain('You earn');
 
   await call(jobRepository.submitRating(job.id, 5, 'Great'));
@@ -289,6 +292,8 @@ it('renders a fixed-price service with extra work on both sides', async () => {
   // Leave p1 free for the next test.
   await call(jobRepository.markWorkComplete(booked.id, 'p1', ''));
   await call(jobRepository.confirmCompletion(booked.id));
+  // A car that isn't in My vehicles: offered for next time.
+  expect(renderJob(booked.id).customer).toContain('Keep this car?');
 });
 
 it('explains a withdrawal and a refunded cancellation', async () => {

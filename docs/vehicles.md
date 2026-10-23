@@ -29,4 +29,5 @@ garage business as a provider, see garage-providers.md.)
 | Registration | Tidied (upper case, single spaces) but any format accepted: diplomatic, government and motorbike plates differ. The same car can't be added twice by one person however it's typed (`KDA123A` = `KDA 123A`); two different customers can both have it. |
 | Removing | Hidden (`removed_at`); the same car can be added again. |
 | Account deletion | All the person's vehicles are removed with it; past jobs keep their own copy. |
+| Car typed in while booking | Kept with the booking and saved to My vehicles when the booking is sent, except for an inspection of a car being bought ("I'm buying this car"). A finished job on a car that isn't saved offers "Save to My vehicles" (2026-10-23). |
 | Service history for mechanics | Not shown. Useful, but it's the previous owner's data once a car is sold. |

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   AUTO_CONFIRM_MS,
@@ -66,7 +66,7 @@ async function refused(url: string, headers: Headers, error: string, payload?: o
 }
 
 /** M-Pesa stand-in: money for `purpose` reached escrow. */
-async function paid(jobId: string, purpose: 'CALL_OUT' | 'SERVICE', amount: number) {
+async function paid(jobId: string, purpose: 'CALL_OUT' | 'SERVICE', amount: number, partsAmount = 0) {
   const at = new Date();
   await db.insert(payments).values({
     id: newId('pay'),
@@ -75,6 +75,7 @@ async function paid(jobId: string, purpose: 'CALL_OUT' | 'SERVICE', amount: numb
     method: 'MPESA',
     phone: '254700000001',
     amount,
+    partsAmount,
     status: 'SUCCESS',
     receiptNumber: 'SXX0000000',
     createdAt: at,
@@ -147,13 +148,17 @@ describe('a repair from offer to rating', () => {
 
     const approved = await ok(`/jobs/${id}/approve-quote`, WANJIRU, { quoteId: quote.id });
     expect(approved.status).toBe('SERVICE_PAYMENT_PENDING');
-    const serviceCharge = await db
+    // The pads are their own charge, paid out to Brian as soon as they're paid.
+    const owed = await db
       .select()
       .from(charges)
-      .where(and(eq(charges.jobId, id), eq(charges.purpose, 'SERVICE')));
-    expect(serviceCharge.map(c => c.amount)).toEqual([650_000]);
+      .where(and(eq(charges.jobId, id), inArray(charges.purpose, ['SERVICE', 'PARTS'])));
+    expect(owed.map(c => [c.purpose, c.amount]).sort()).toEqual([
+      ['PARTS', 450_000],
+      ['SERVICE', 200_000],
+    ]);
 
-    await paid(id, 'SERVICE', 650_000);
+    await paid(id, 'SERVICE', 650_000, 450_000);
     // Extra work found: finishing waits for the customer's answer.
     const extra = await ok(`/jobs/${id}/additional-quote`, BRIAN, {
       items: EXTRA,
@@ -169,9 +174,9 @@ describe('a repair from offer to rating', () => {
     const done = await ok(`/jobs/${id}/confirm`, WANJIRU);
     expect(done.status).toBe('COMPLETED');
 
-    // Call-out and service released to Brian, less 20% commission on the service.
+    // Call-out and labour released to Brian on confirmation (the parts went at payment).
     const [release] = await db.select().from(releases).where(eq(releases.jobId, id));
-    expect(release.gross).toBe(80_000 + 650_000);
+    expect(release.gross).toBe(80_000 + 200_000);
     expect(release.providerId).toBe('p1');
 
     const rated = await ok(`/jobs/${id}/rate`, WANJIRU, { stars: 5, comment: 'Quick' });

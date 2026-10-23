@@ -27,6 +27,7 @@ import { CompletionPanel } from './panels/CompletionPanel';
 import { JobDetailsCard } from './panels/JobDetailsCard';
 import { PaymentPanel } from './panels/PaymentPanel';
 import { ProviderPanel } from './panels/ProviderPanel';
+import { SaveVehiclePanel } from './panels/SaveVehiclePanel';
 import {
   AdditionalQuotesPanel,
   AgreedWorkPanel,
@@ -203,6 +204,7 @@ function StagePanel({ job }: { job: Job }) {
       return (
         <>
           <RatingPanel job={job} />
+          <SaveVehiclePanel job={job} />
           <ReceiptPanel job={job} />
         </>
       );

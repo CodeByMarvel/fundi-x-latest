@@ -27,7 +27,8 @@ const changed = () => listeners.forEach(l => l());
 export function useVehicles() {
   const { state } = useAuth();
   const token = state.status === 'signedIn' ? state.token : null;
-  const demo = state.status === 'demo';
+  // Like the rest of the data (backend.ts): sample data until signed in.
+  const demo = !token;
   const current = useSyncExternalStore(subscribe, () => (demo ? demoVehicles : vehicles));
 
   useEffect(() => {

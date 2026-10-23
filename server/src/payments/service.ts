@@ -8,6 +8,8 @@ import {
 } from '../../../src/domain/billing/types';
 import { balanceDue } from '../../../src/domain/billing/ledger';
 import { STK_TIMEOUT_MS } from '../../../src/domain/jobs/rules';
+import { partsTotal } from '../../../src/domain/quotes/quotes';
+import type { QuoteItem } from '../../../src/domain/quotes/types';
 import type { Caller } from '../auth';
 import type { Database, Tx } from '../db/client';
 import { charges, payments, quotes, refunds, releases, users } from '../db/schema';
@@ -71,6 +73,35 @@ export const toRelease = (r: typeof releases.$inferSelect) => ({
 });
 
 /**
+ * An approved quote becomes what the customer owes: the parts as their own
+ * charge (paid out to the mechanic as soon as they're paid, like a
+ * fixed-price job's parts), the rest held in escrow until confirmation.
+ */
+export async function chargeForQuote(
+  tx: Tx,
+  quote: { id: string; jobId: string; items: QuoteItem[]; total: number },
+  label: { work: string; parts: string },
+  at: Date,
+) {
+  const parts = partsTotal(quote.items);
+  const values = (purpose: 'SERVICE' | 'PARTS', amount: number, text: string) => ({
+    id: newId('chg'),
+    jobId: quote.jobId,
+    purpose,
+    amount,
+    description: text,
+    quoteId: quote.id,
+    createdAt: at,
+  });
+  if (quote.total > parts) {
+    await tx.insert(charges).values(values('SERVICE', quote.total - parts, label.work));
+  }
+  if (parts > 0) {
+    await tx.insert(charges).values(values('PARTS', parts, label.parts));
+  }
+}
+
+/**
  * Asks the customer's phone for the money the job is waiting for: the
  * call-out, the agreed price, or (with `quoteId`) extra work, which is
  * approved by paying for it.
@@ -114,6 +145,7 @@ export function startPayment(
       }
       purpose = 'SERVICE';
       amount = row.total;
+      partsAmount = partsTotal(row.items);
     } else if (job.status === 'CALL_OUT_PAYMENT_PENDING') {
       purpose = 'CALL_OUT';
       amount = balanceDue(jobCharges, jobPayments, jobId, purpose);
@@ -250,13 +282,16 @@ export async function paymentSucceeded(
     await callOutPaid(tx, job, at);
     return;
   }
-  if (row.purpose === 'SERVICE' && !row.quoteId && job.status === 'SERVICE_PAYMENT_PENDING') {
-    // The parts money goes to the mechanic now, so they can buy the
-    // parts; the rest stays in escrow until the customer confirms.
+  // The parts money goes to the mechanic now, so they can buy the parts;
+  // the rest stays in escrow until the customer confirms.
+  const releaseParts = async () => {
     if (row.partsAmount > 0 && job.providerId) {
       const line = releaseLine(row.id, 'PARTS', row.partsAmount, await commissionRates(tx));
       await createRelease(tx, { jobId: job.id, providerId: job.providerId, lines: [line] }, at);
     }
+  };
+  if (row.purpose === 'SERVICE' && !row.quoteId && job.status === 'SERVICE_PAYMENT_PENDING') {
+    await releaseParts();
     // The agreed price is in escrow: work can start.
     await moveJob(tx, job, 'IN_PROGRESS', 'SYSTEM', at, { metadata });
     return;
@@ -269,15 +304,14 @@ export async function paymentSucceeded(
         .update(quotes)
         .set({ status: 'APPROVED', respondedAt: at })
         .where(eq(quotes.id, quote.id));
-      await tx.insert(charges).values({
-        id: newId('chg'),
-        jobId: job.id,
-        purpose: 'SERVICE',
-        amount: quote.total,
-        description: `Additional: ${toQuote(quote).reason ?? 'extra work'}`,
-        quoteId: quote.id,
-        createdAt: at,
-      });
+      const reason = toQuote(quote).reason ?? 'extra work';
+      await chargeForQuote(
+        tx,
+        quote,
+        { work: `Additional: ${reason}`, parts: `Additional parts: ${reason}` },
+        at,
+      );
+      await releaseParts();
       return;
     }
   }

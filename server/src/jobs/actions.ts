@@ -22,6 +22,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../errors';
 import { newId } from '../ids';
 import { metresBetween } from '../matching/h3';
 import { matchRound, startMatching } from '../matching/service';
+import { chargeForQuote } from '../payments/service';
 import { scheduleTimer } from '../timers/schedule';
 import { getJob, moveJob } from './service';
 import { lockJob, saveJob, toJob, toQuote } from './store';
@@ -407,15 +408,7 @@ export const approveQuote = (db: Database, caller: Caller, jobId: string, quoteI
       metadata: { quoteId, total: quote.total },
     });
     await tx.update(quotes).set({ status: 'APPROVED', respondedAt: now }).where(eq(quotes.id, quoteId));
-    await tx.insert(charges).values({
-      id: newId('chg'),
-      jobId,
-      purpose: 'SERVICE',
-      amount: quote.total,
-      description: 'Agreed work',
-      quoteId,
-      createdAt: now,
-    });
+    await chargeForQuote(tx, quote, { work: 'Agreed work', parts: 'Parts' }, now);
     return servicePaymentDue(tx, next, now);
   });
 

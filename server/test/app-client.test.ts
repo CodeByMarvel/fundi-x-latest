@@ -118,9 +118,11 @@ describe('the app talking to the server', () => {
 
     // The money, as each side sees it.
     expect(customer.billing.getPaymentsSnapshot().map(p => p.status)).toEqual(['SUCCESS', 'SUCCESS']);
-    await until(() => mechanic.billing.getReleasesSnapshot().length === 1);
-    const [payout] = mechanic.billing.getReleasesSnapshot();
-    expect(payout).toMatchObject({ jobId: job.id, providerId: 'p1', gross: 80_000 + quote.total });
+    // The pads when paid for, then the call-out and labour on confirmation.
+    await until(() => mechanic.billing.getReleasesSnapshot().length === 2);
+    const payouts = mechanic.billing.getReleasesSnapshot();
+    expect(payouts.every(r => r.jobId === job.id && r.providerId === 'p1')).toBe(true);
+    expect(payouts.map(r => r.gross).sort((a, b) => a - b)).toEqual([80_000 + 200_000, 450_000]);
     expect(mechanic.billing.getPaymentsSnapshot()).toEqual([]); // never the customer's payments
     await until(() => mechanic.providers.getProviderSnapshot('p1')?.ratingCount === 1);
   }, 30_000);

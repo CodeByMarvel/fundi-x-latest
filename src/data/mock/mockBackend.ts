@@ -57,6 +57,7 @@ import {
   hasPendingAdditionalQuote,
   QuoteValidationError,
   StaleQuoteError,
+  partsTotal,
   sumItems,
   validateQuoteItems,
 } from '../../domain/quotes/quotes';
@@ -621,15 +622,31 @@ export function createMockBackend({
     };
   };
 
-  /** An approved quote becomes something the customer owes. */
-  const chargeForQuote = (quote: Quote) =>
-    addCharge(
-      quote.jobId,
-      'SERVICE',
-      quote.total,
-      quote.kind === 'BASE' ? 'Agreed work' : `Additional: ${quote.reason}`,
-      quote.id,
-    );
+  /**
+   * An approved quote becomes something the customer owes. Its parts are
+   * their own charge, paid out to the mechanic as soon as they're paid.
+   */
+  const chargeForQuote = (quote: Quote) => {
+    const parts = partsTotal(quote.items);
+    if (quote.total > parts) {
+      addCharge(
+        quote.jobId,
+        'SERVICE',
+        quote.total - parts,
+        quote.kind === 'BASE' ? 'Agreed work' : `Additional: ${quote.reason}`,
+        quote.id,
+      );
+    }
+    if (parts > 0) {
+      addCharge(
+        quote.jobId,
+        'PARTS',
+        parts,
+        quote.kind === 'BASE' ? 'Parts' : `Additional parts: ${quote.reason}`,
+        quote.id,
+      );
+    }
+  };
 
   // ---- Jobs ----
 
@@ -1085,6 +1102,9 @@ export function createMockBackend({
       };
       putQuote(approved);
       chargeForQuote(approved);
+      if (payment.partsAmount) {
+        addRelease(job, [releaseLine(payment.id, 'PARTS', payment.partsAmount)]);
+      }
       notify();
     } else {
       // The job moved on while the customer was paying (e.g. they cancelled
@@ -1122,6 +1142,7 @@ export function createMockBackend({
         }
         purpose = 'SERVICE';
         amount = quote.total;
+        partsAmount = partsTotal(quote.items);
       } else if (job?.status === 'CALL_OUT_PAYMENT_PENDING') {
         purpose = 'CALL_OUT';
         amount = balanceDue(charges, payments, jobId, purpose);

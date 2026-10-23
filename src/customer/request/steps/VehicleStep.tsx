@@ -15,7 +15,7 @@ import { StepProps } from './stepProps';
 type Props = StepProps & {
   /** `null` while "My vehicles" is still loading. */
   vehicles: Vehicle[] | null;
-  /** Saves it to "My vehicles" and returns it with its id. */
+  /** Adds it to this booking and returns it with an id. */
   onAddVehicle: (vehicle: VehicleInput) => Promise<Vehicle>;
 };
 
@@ -34,6 +34,7 @@ export function VehicleStep({ draft, onNext, vehicles, onAddVehicle }: Props) {
     return (
       <AddVehicleForm
         canCancel={vehicles.length > 0}
+        saveLabel="Continue"
         onCancel={() => setAdding(false)}
         onSave={async input => {
           const vehicle = await onAddVehicle(input);
@@ -66,12 +67,18 @@ export function VehicleStep({ draft, onNext, vehicles, onAddVehicle }: Props) {
 
 type FormProps = {
   canCancel: boolean;
+  saveLabel?: string;
   onCancel: () => void;
   onSave: (vehicle: VehicleInput) => Promise<void>;
 };
 
 /** Booking's "add a vehicle" step, and the account screen's. */
-export function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
+export function AddVehicleForm({
+  canCancel,
+  saveLabel = 'Save vehicle',
+  onCancel,
+  onSave,
+}: FormProps) {
   const [registration, setRegistration] = useState('');
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
@@ -112,7 +119,7 @@ export function AddVehicleForm({ canCancel, onCancel, onSave }: FormProps) {
         <>
           {error && <Text style={styles.error}>{error}</Text>}
           <PrimaryButton
-            label="Save vehicle"
+            label={saveLabel}
             onPress={save}
             disabled={!valid}
             loading={saving}

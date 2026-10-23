@@ -110,8 +110,10 @@ Fundi-X prices **labour**; parts are an optional add-on.
   booked job keeps its price: its Fundi-X quote holds a copy of the lines.
 - The engine sits behind one interface (`PricingService`) so it can be
   replaced by a data-driven model later without touching the job flow.
-- **Repairs (`QUOTED`) are unchanged:** the mechanic's quote includes parts,
-  and the service commission applies to all of it. Worth revisiting.
+- **Repairs (`QUOTED`):** the mechanic quotes on site. Since 2026-10-23 the
+  quote's `PART` lines are charged and paid like a fixed-price job's parts
+  (their own `PARTS` charge, paid out at payment, 5% commission); the rest
+  is the service charge.
 
 ### 3.3 Quotes
 
@@ -325,15 +327,16 @@ function (`settlementFor`) decides; the backend records the result.
 
 - **Release** = paid to the assigned provider, minus commission.
 - **Commission (CONFIGURABLE, admin Settings):** per money purpose in basis
-  points: `CALL_OUT` 2000 (20%), `SERVICE` 2000 (20%, labour and quoted
-  work), `PARTS` 500 (5%, fixed-price parts the mechanic buys). Taken only
+  points: `CALL_OUT` 2000 (20%), `SERVICE` 2000 (20%, labour and other
+  quoted work), `PARTS` 500 (5%, parts the mechanic buys). Taken only
   on released money.
 - **Parts are released early.** On a fixed-price job with `partsOption:
-  MECHANIC`, the service payment carries the parts (`Payment.partsAmount`).
+  MECHANIC`, and for the `PART` lines of any approved quote (base or extra
+  work), the payment carries the parts (`Payment.partsAmount`).
   When it succeeds the parts money is released to the mechanic at once (a
   `PARTS` release line) so they can buy the parts; the rest stays in
   escrow. Settlement and disputes only move what is still in escrow, so a
-  dispute on such a job covers the call-out and labour, not the parts.
+  dispute covers the call-out and labour, not the parts.
 - **Unpaid charges on a closed job are void** (principle 8). There are no
   collections in v1.0.
 - **Money that arrives after a job closed** (e.g. the customer completes the
@@ -417,7 +420,7 @@ portal) may:
 
 | Record | Created when | Key fields |
 |---|---|---|
-| `Charge` | Call-out at booking; service when a quote is approved (FIXED: at booking, plus a `PARTS` charge if the mechanic brings them) | purpose, amount, quoteId |
+| `Charge` | Call-out at booking; service when a quote is approved, plus a `PARTS` charge for its parts (FIXED: at booking, if the mechanic brings them) | purpose, amount, quoteId |
 | `Payment` | Customer starts an STK push | purpose, phone, amount (of which `partsAmount`), status, M-Pesa `CheckoutRequestID`, receipt |
 | `Refund` | Settlement or late payment | paymentId, amount, reason, status |
 | `Release` | Settlement | providerId, lines (per payment: gross, commission), net |
