@@ -8,6 +8,7 @@ import { seedDevData } from './db/devSeed';
 import { darajaConfigFromEnv, darajaGateway } from './mpesa/daraja';
 import { startPromptReconciler } from './mpesa/reconcile';
 import { simulatedMpesa } from './mpesa/simulated';
+import { r2ConfigFromEnv, r2FileStore } from './storage/files';
 import { startTransferWorker } from './money/transfers';
 import { startTimerWorker } from './timers/worker';
 
@@ -37,6 +38,11 @@ if (IS_PRODUCTION && !daraja) {
   process.exit(1);
 }
 const mpesa = daraja ? darajaGateway(daraja) : simulatedMpesa(db);
+
+// Cloudflare R2 for documents and photos (docs/files.md). Optional until
+// uploads are built; partly set R2_* values stop the server.
+const r2 = r2ConfigFromEnv(process.env);
+const files = r2 ? r2FileStore(r2) : null;
 if (!IS_PRODUCTION) {
   await seedDevData(db);
 }
@@ -49,6 +55,7 @@ const app = buildApp({
   // PIN prompts. Never in production, whatever .env says.
   simulatePayments: !IS_PRODUCTION && process.env.SIMULATE_MPESA !== 'false',
   mpesa,
+  files,
   mpesaCallbacks: daraja
     ? {
         secret: daraja.callbackSecret,
@@ -95,6 +102,12 @@ if (daraja) {
 } else {
   app.log.warn('M-Pesa: simulator (no MPESA_* settings in server/.env)');
 }
+if (files) {
+  app.log.info(`File storage: R2 bucket ${files.bucket}`);
+} else {
+  app.log.warn('File storage: off (no R2_* settings in server/.env)');
+}
+
 const stopReconciler = daraja
   ? startPromptReconciler(db, mpesa, { onError: err => app.log.error({ err }, 'M-Pesa reconciliation failed') })
   : () => {};

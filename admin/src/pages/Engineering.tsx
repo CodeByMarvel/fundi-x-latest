@@ -237,6 +237,7 @@ const FEATURES: Record<string, { label: string; inProduction: boolean }> = {
   adminDevSignIn: { label: 'Admin development sign-in', inProduction: false },
   devUserHeader: { label: 'Development user header (tests, demo)', inProduction: false },
   simulatedMpesa: { label: 'Simulated M-Pesa phone', inProduction: false },
+  fileStorage: { label: 'File storage (R2)', inProduction: true },
 };
 
 /** What's running. Switches only: secrets are never sent to the portal. */

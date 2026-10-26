@@ -14,6 +14,7 @@ import { createErrorHandler } from './errors';
 import { newId } from './ids';
 import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
+import type { FileStore } from './storage/files';
 import type { MpesaGateway } from './mpesa/gateway';
 import { registerMpesaCallbacks } from './mpesa/routes';
 import { simulatedMpesa } from './mpesa/simulated';
@@ -51,6 +52,7 @@ export function buildApp({
   signInPerMinute = 10,
   simulatePayments = true,
   mpesa,
+  files = null,
   mpesaCallbacks = null,
 }: {
   db: Database;
@@ -65,6 +67,8 @@ export function buildApp({
   simulatePayments?: boolean;
   /** Daraja (real M-Pesa) or the simulator (development and tests). */
   mpesa?: MpesaGateway;
+  /** Uploaded documents and photos (R2); null when not configured. */
+  files?: FileStore | null;
   /** Where Safaricom's callbacks arrive; only with Daraja. */
   mpesaCallbacks?: { secret: string; allowedIps: string[] } | null;
 }) {
@@ -145,6 +149,7 @@ export function buildApp({
       devUserHeader: allowDevHeader,
       simulatedMpesa: simulatePayments && mpesa.name === 'simulator',
       darajaMpesa: mpesa.name === 'daraja',
+      fileStorage: !!files,
     },
   });
   return app;

@@ -57,6 +57,15 @@ services:
         value: testapi
       - key: MPESA_B2C_SECURITY_CREDENTIAL
         sync: false
+      # Cloudflare R2 (docs/files.md)
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: fundix-test
 
   # The admin website. Its calls to /admin are passed to the API, so the
   # browser sees one address and the sign-in cookie stays first-party.
