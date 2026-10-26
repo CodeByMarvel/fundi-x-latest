@@ -84,6 +84,18 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // -PnativeJobs=2 caps how many C++ files compile at once. Ninja
+        // otherwise runs one per core, which runs a low-memory PC out of
+        // memory (docs/deploy.md §5).
+        if (project.hasProperty("nativeJobs")) {
+            externalNativeBuild {
+                cmake {
+                    arguments "-DCMAKE_JOB_POOLS=compile=${project.property("nativeJobs")};link=1",
+                            "-DCMAKE_JOB_POOL_COMPILE=compile",
+                            "-DCMAKE_JOB_POOL_LINK=link"
+                }
+            }
+        }
     }
     signingConfigs {
         debug {

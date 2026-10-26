@@ -79,8 +79,12 @@ key as the development build.
 2. Build, in PowerShell:
    ```
    cd android
-   .\gradlew.bat assembleRelease
+   .\gradlew.bat assembleRelease --max-workers=2 -PreactNativeArchitectures=arm64-v8a -PnativeJobs=2
    ```
+   The flags keep the build inside 8 GB of memory: one phone chip type
+   (arm64, what current Android phones use) and two C++ files at a time.
+   Without them the compiler crashes and Windows' swap file can fill the
+   disk. About 15 minutes the first time.
 3. The app is `android/app/build/outputs/apk/release/app-release.apk`.
    Install it over USB with `adb install -r <that file>` once, or send the
    file to a tester's phone. After that, no cable or computer is needed.
