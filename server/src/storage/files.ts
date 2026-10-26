@@ -76,7 +76,10 @@ export function r2FileStore(config: R2Config): FileStore {
 
   async function send(method: string, key: string, init: RequestInit = {}) {
     const res = await client.fetch(objectUrl(key), { method, ...init });
-    if (!res.ok && res.status !== 404) {
+    // A missing file is an answer for HEAD and DELETE; for a save it means
+    // the bucket itself is missing.
+    const missingIsFine = method === 'HEAD' || method === 'DELETE';
+    if (!res.ok && !(missingIsFine && res.status === 404)) {
       throw new Error(`File storage ${method} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
     }
     return res;
