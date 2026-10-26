@@ -240,3 +240,22 @@ export type Transfer = {
   createdAt: string;
   completedAt: string | null;
 };
+
+export type StaffRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  status: 'ACTIVE' | 'DISABLED';
+  /** Signed in with Google at least once (the account is bound to it). */
+  googleLinked: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+};
+
+export type RoleInfo = {
+  id: string;
+  label: string;
+  description: string;
+  permissions: string[];
+};

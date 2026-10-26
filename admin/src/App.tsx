@@ -12,6 +12,7 @@ import { Engineering } from './pages/Engineering';
 import { JobDetail } from './pages/JobDetail';
 import { Jobs } from './pages/Jobs';
 import { Settings } from './pages/Settings';
+import { Staff } from './pages/Staff';
 import { SignIn } from './pages/SignIn';
 import { href, useRoute, type Route } from './route';
 
@@ -54,7 +55,10 @@ const SECTIONS: { title?: string; items: NavItem[] }[] = [
   },
   {
     title: 'Security',
-    items: [{ route: { page: 'audit' }, label: 'Audit log', needs: 'logs.view' }],
+    items: [
+      { route: { page: 'staff' }, label: 'Staff', needs: 'staff.manage' },
+      { route: { page: 'audit' }, label: 'Audit log', needs: 'logs.view' },
+    ],
   },
 ];
 
@@ -148,13 +152,21 @@ export function App() {
         </div>
       </aside>
       <main className="content">
-        <Page route={route} can={can} />
+        <Page route={route} can={can} myId={me.id} />
       </main>
     </div>
   );
 }
 
-function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }) {
+function Page({
+  route,
+  can,
+  myId,
+}: {
+  route: Route;
+  can: (p?: Permission) => boolean;
+  myId: string;
+}) {
   switch (route.page) {
     case 'jobs':
       return can('jobs.view') ? <Jobs key={href(route)} route={route} /> : <NotAllowed />;
@@ -178,6 +190,8 @@ function Page({ route, can }: { route: Route; can: (p?: Permission) => boolean }
       return can('money.view') ? <Finance can={can} /> : <NotAllowed />;
     case 'audit':
       return can('logs.view') ? <AuditLog /> : <NotAllowed />;
+    case 'staff':
+      return can('staff.manage') ? <Staff myId={myId} /> : <NotAllowed />;
     default:
       return <Dashboard can={can} />;
   }

@@ -19,7 +19,8 @@ export type Route =
   | { page: 'mechanics'; verification?: Verification }
   | { page: 'person'; id: string }
   | { page: 'finance' }
-  | { page: 'audit' };
+  | { page: 'audit' }
+  | { page: 'staff' };
 
 export function parse(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?');
@@ -51,6 +52,7 @@ export function parse(hash: string): Route {
     case 'disputes':
     case 'finance':
     case 'audit':
+    case 'staff':
       return { page: first };
     default:
       return { page: 'dashboard' };

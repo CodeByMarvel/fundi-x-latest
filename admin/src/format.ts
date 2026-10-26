@@ -103,6 +103,10 @@ export const ACTIONS: Record<string, string> = {
   'mechanic.reject': 'Mechanic rejected',
   'transfer.retry': 'M-Pesa transfer sent again',
   'transfer.mark_sent': 'M-Pesa transfer recorded as received',
+  'staff.add': 'Staff member added',
+  'staff.role_change': 'Staff role changed',
+  'staff.disable': 'Staff member disabled',
+  'staff.enable': 'Staff member enabled',
 };
 
 /** Audit actions worth a second look. */

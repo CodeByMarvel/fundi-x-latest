@@ -53,6 +53,10 @@ Being staff never means skipping a rule.
   answered only for requests from the server's own computer and never in
   production.
 - Changes must come from the portal's own address (`ADMIN_ORIGIN`).
+- **Security → Staff** (`staff.manage`): add a Google email with a role,
+  change a role, disable (ends their sessions at once) or enable. Each needs
+  a reason. Nobody changes their own access, and the last active owner
+  can't be demoted or disabled.
 
 ---
 
@@ -245,7 +249,7 @@ Roles are bundles of permissions, defined in
 | `jobs.cancel` | Cancel and refund a job, or reassign its mechanic |
 | `disputes.resolve` | Decide a dispute |
 | `money.view` | Finance pages |
-| `money.refund` | Issue a refund (planned, with M-Pesa) |
+| `money.refund` | Send a failed M-Pesa transfer again, or record it received |
 | `users.view` | Customers, mechanics, person pages, notes on people |
 | `users.suspend` | Suspend or restore an app account |
 | `providers.verify` | Verify or reject a mechanic |
@@ -254,17 +258,19 @@ Roles are bundles of permissions, defined in
 | `logs.view` | Audit log, incidents, system health |
 | `incidents.resolve` | Mark an incident resolved |
 | `timers.retry` | Retry a failed timer |
-| `staff.manage` | Add staff and assign roles (planned) |
+| `staff.manage` | Add staff, change roles, disable or enable staff |
 
-| Role | Today | Gets |
-|---|---|---|
-| **OWNER** (super admin) | ✅ the only role | Everything |
-| Operations | planned | jobs.*, users.view, users.suspend, providers.verify |
-| Support | planned | jobs.view, jobs.cancel, users.view |
-| Finance | planned | jobs.view, money.* |
-| Developer | planned | logs.view, incidents.resolve, timers.retry, jobs.view |
-| Compliance | planned | providers.verify, logs.view, disputes (planned) |
-| Manager | planned | read-only across sections, reports |
+| Role | Gets |
+|---|---|
+| **OWNER** (super admin) | Everything |
+| Operations | jobs.view, jobs.cancel, users.view, users.suspend, providers.verify |
+| Support | jobs.view, jobs.cancel, users.view |
+| Finance | jobs.view, money.view, money.refund |
+| Developer | jobs.view, logs.view, incidents.resolve, timers.retry |
+| Compliance | jobs.view, users.view, providers.verify, disputes.resolve, logs.view |
+| Manager | jobs.view, users.view, money.view, logs.view (read-only) |
+
+Settings and the catalog stay with the owner for now.
 
 More permissions (`payouts.manage`, `reports.view`) are added with the
 features that need them.
@@ -309,4 +315,5 @@ never edited or deleted.
 | Mechanics: verification, record (2026-10-21) | `server/src/admin/mechanics.ts` |
 | Finance (2026-10-21) | `server/src/admin/finance.ts` |
 | Recent requests, timers, system (2026-10-21) | `server/src/requestLog.ts`, `/admin/requests`, `/admin/timers`, `/admin/system` |
+| Staff and roles (2026-10-26) | `server/src/admin/staff.ts`, `/admin/staff` |
 | Website | `admin/` (Vite + React) |

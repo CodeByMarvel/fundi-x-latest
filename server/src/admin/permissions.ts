@@ -25,14 +25,29 @@ export const PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 /**
- * What each role may do. Today Fundi-X is one person, so there is one
- * role with everything. Hiring adds roles here, for example:
- *   SUPPORT:  jobs.view, jobs.cancel, users.view, users.suspend
- *   ACCOUNTS: jobs.view, money.view, money.refund
- * The full planned list is in docs/admin-portal.md §5.
+ * What each role may do (docs/admin-portal.md §5). A role that acts on
+ * something also gets the view permission of the page it acts from, e.g.
+ * verifying mechanics needs users.view to open the Mechanics list.
  */
 export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
   OWNER: PERMISSIONS,
+  OPERATIONS: ['jobs.view', 'jobs.cancel', 'users.view', 'users.suspend', 'providers.verify'],
+  SUPPORT: ['jobs.view', 'jobs.cancel', 'users.view'],
+  FINANCE: ['jobs.view', 'money.view', 'money.refund'],
+  DEVELOPER: ['jobs.view', 'logs.view', 'incidents.resolve', 'timers.retry'],
+  COMPLIANCE: ['jobs.view', 'users.view', 'providers.verify', 'disputes.resolve', 'logs.view'],
+  MANAGER: ['jobs.view', 'users.view', 'money.view', 'logs.view'],
+};
+
+/** How the staff screen describes each role. */
+export const ROLE_INFO: Record<StaffRole, { label: string; description: string }> = {
+  OWNER: { label: 'Owner', description: 'Everything, including staff and settings' },
+  OPERATIONS: { label: 'Operations', description: 'Jobs, mechanic verification, suspending accounts' },
+  SUPPORT: { label: 'Support', description: 'Jobs and customers; cancel, refund or reassign a job' },
+  FINANCE: { label: 'Finance', description: 'Money pages, refunds and M-Pesa transfers' },
+  DEVELOPER: { label: 'Developer', description: 'System health, incidents, timers, audit log' },
+  COMPLIANCE: { label: 'Compliance', description: 'Mechanic verification, disputes, audit log' },
+  MANAGER: { label: 'Manager', description: 'Read-only across jobs, people, money and logs' },
 };
 
 export const can = (role: StaffRole, permission: Permission) =>

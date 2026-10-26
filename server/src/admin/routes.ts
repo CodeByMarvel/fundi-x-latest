@@ -19,6 +19,7 @@ import { registerAdminEngineering } from './engineering';
 import { registerAdminFinance } from './finance';
 import { registerAdminJobs } from './jobs';
 import { registerAdminMechanics } from './mechanics';
+import { registerAdminStaff } from './staff';
 import { registerAdminSupport } from './support';
 import { ROLE_PERMISSIONS } from './permissions';
 import { reasonFrom, reasonSchema } from './reason';
@@ -313,6 +314,7 @@ export function registerAdminRoutes(
       registerAdminSupport(admin, db);
       registerAdminMechanics(admin, db);
       registerAdminFinance(admin, db);
+      registerAdminStaff(admin, db);
     },
     { prefix: '/admin' },
   );

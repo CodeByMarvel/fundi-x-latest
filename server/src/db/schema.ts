@@ -199,8 +199,17 @@ export const staff = pgTable('staff', {
   updatedAt: updatedAt(),
 });
 
-/** Staff roles. One for now; more are added in admin/permissions.ts. */
-export type StaffRole = 'OWNER';
+/** Staff roles; what each may do is in admin/permissions.ts. */
+export const STAFF_ROLES = [
+  'OWNER',
+  'OPERATIONS',
+  'SUPPORT',
+  'FINANCE',
+  'DEVELOPER',
+  'COMPLIANCE',
+  'MANAGER',
+] as const;
+export type StaffRole = (typeof STAFF_ROLES)[number];
 
 /**
  * Signed-in admin console sessions. The browser holds a random token in a
