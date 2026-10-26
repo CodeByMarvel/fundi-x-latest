@@ -63,6 +63,22 @@ export class NotConfiguredError extends Error {
 }
 
 /** Called for errors nobody expected (HTTP 500), e.g. to record an incident. */
+/**
+ * A limit was reached: 429 for one person going too fast, 503 when the
+ * whole app has paused something (e.g. uploads, docs/files.md). `code` is
+ * what the app acts on.
+ */
+export class LimitError extends Error {
+  constructor(
+    readonly status: 429 | 503,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LimitError';
+  }
+}
+
 export type UnexpectedErrorHook = (
   error: Error,
   request: FastifyRequest,
@@ -121,6 +137,9 @@ export function createErrorHandler(onUnexpected?: UnexpectedErrorHook) {
     if (error instanceof ConflictError) {
       return send(409, error.code);
     }
+    if (error instanceof LimitError) {
+      return send(error.status, error.code);
+    }
     if (error instanceof NotConfiguredError) {
       request.log.error(error);
       return send(503, 'not_configured');
@@ -128,6 +147,9 @@ export function createErrorHandler(onUnexpected?: UnexpectedErrorHook) {
     // Fastify's own client errors (malformed JSON, body too large…): the
     // caller's mistake, not ours, so not an incident.
     const status = (error as FastifyError).statusCode;
+    if (status === 429) {
+      return send(429, 'rate_limited', 'Too many requests. Wait a minute and try again.');
+    }
     if (status && status >= 400 && status < 500) {
       return send(status, 'invalid_request');
     }

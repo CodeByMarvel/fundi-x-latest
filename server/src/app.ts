@@ -14,6 +14,7 @@ import { createErrorHandler } from './errors';
 import { newId } from './ids';
 import { describeError, reportIncident } from './incidents';
 import { registerJobRoutes } from './jobs/routes';
+import { registerFileRoutes } from './files/routes';
 import type { FileStore } from './storage/files';
 import type { MpesaGateway } from './mpesa/gateway';
 import { registerMpesaCallbacks } from './mpesa/routes';
@@ -50,6 +51,8 @@ export function buildApp({
   accounts = LOCAL_ACCOUNTS,
   allowDevHeader = true,
   signInPerMinute = 10,
+  requestsPerMinute = null,
+  trustProxy = false,
   simulatePayments = true,
   mpesa,
   files = null,
@@ -63,6 +66,17 @@ export function buildApp({
   allowDevHeader?: boolean;
   /** Sign-in attempts allowed per minute from one address (app and portal). */
   signInPerMinute?: number;
+  /**
+   * Requests per minute for each signed-in account (or address, before
+   * sign-in), on every route. null: off (tests). index.ts turns it on.
+   */
+  requestsPerMinute?: number | null;
+  /**
+   * Behind a host's proxy (Render, Vercel), the caller's address comes from
+   * X-Forwarded-For. Without this, everyone looks like the proxy and shares
+   * one rate limit.
+   */
+  trustProxy?: boolean;
   /** The dev stand-in for the customer's phone during M-Pesa payments. Never in production. */
   simulatePayments?: boolean;
   /** Daraja (real M-Pesa) or the simulator (development and tests). */
@@ -80,6 +94,7 @@ export function buildApp({
     // incident and an error message can always be matched up.
     genReqId: () => newId('req'),
     requestIdHeader: false,
+    trustProxy,
   });
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -122,15 +137,32 @@ export function buildApp({
     ),
   );
   app.register(cookie);
-  // Only routes that ask for it are limited (sign-in), per address.
-  app.register(rateLimit, { global: false });
+  // Sign-in routes have their own, tighter limit. With requestsPerMinute,
+  // every other route is limited too: per account once signed in (so people
+  // behind one mobile network address don't share a limit), else per
+  // address. Runs after auth (preHandler) so it knows who's calling.
+  // Health checks and Safaricom's callbacks are never limited.
+  app.register(rateLimit, {
+    global: requestsPerMinute !== null,
+    max: requestsPerMinute ?? 0,
+    timeWindow: '1 minute',
+    hook: 'preHandler',
+    keyGenerator: request =>
+      request.caller ? `${request.caller.role}:${request.caller.id}` : request.ip,
+    allowList: request => request.url === '/health' || request.url.startsWith('/mpesa/'),
+  });
   registerAuth(app, db, { allowDevHeader });
   app.get('/health', async () => ({ ok: true }));
-  registerJobRoutes(app, db);
-  registerProviderRoutes(app, db);
-  registerPlaceRoutes(app, db);
-  registerVehicleRoutes(app, db);
-  registerPaymentRoutes(app, db, { simulatePayments, mpesa });
+  // The app's routes, inside a plugin so the rate limiter (ready only once
+  // it has loaded) covers them.
+  app.register(async scope => {
+    registerJobRoutes(scope, db);
+    registerProviderRoutes(scope, db);
+    registerFileRoutes(scope, db, files);
+    registerPlaceRoutes(scope, db);
+    registerVehicleRoutes(scope, db);
+    registerPaymentRoutes(scope, db, { simulatePayments, mpesa });
+  });
   if (mpesaCallbacks) {
     registerMpesaCallbacks(app, db, mpesaCallbacks);
   }
@@ -141,6 +173,7 @@ export function buildApp({
     ...admin,
     signInPerMinute,
     requestLog,
+    files,
     // On/off switches only, for the Engineering page: never a secret.
     features: {
       googleSignIn: !!accounts.googleClientId,

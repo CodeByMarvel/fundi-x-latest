@@ -3,7 +3,7 @@ import { api, type Health, type Incident, type Permission, type Timer } from '..
 import { JobLink } from '../components/JobLink';
 import { ReasonForm } from '../components/ReasonForm';
 import { ago, duration, humanize, when } from '../format';
-import type { RequestLog, SystemInfo } from '../types';
+import type { FileUsage, RequestLog, SystemInfo } from '../types';
 import { useEvery } from '../useEvery';
 
 const KIND: Record<Incident['kind'], string> = {
@@ -11,6 +11,7 @@ const KIND: Record<Incident['kind'], string> = {
   timer_failed: 'Timer failed',
   timer_worker_error: 'Timer worker crashed',
   mpesa: 'M-Pesa',
+  storage: 'File storage',
 };
 
 export function Engineering({ can }: { can: (p: Permission) => boolean }) {
@@ -117,6 +118,7 @@ export function Engineering({ can }: { can: (p: Permission) => boolean }) {
       <RecentRequests />
       <AllTimers />
       <System />
+      <Storage />
     </>
   );
 }
@@ -241,6 +243,58 @@ const FEATURES: Record<string, { label: string; inProduction: boolean }> = {
 };
 
 /** What's running. Switches only: secrets are never sent to the portal. */
+const MB = 1_048_576;
+
+/** Uploads against the limits that keep R2 free (docs/files.md §4). */
+function Storage() {
+  const [usage, setUsage] = useState<FileUsage | null>(null);
+  useEffect(() => {
+    api<FileUsage>('/files/usage').then(setUsage, () => {});
+  }, []);
+  if (!usage) {
+    return null;
+  }
+  const storedMb = usage.storedBytes / MB;
+  const storedShare = storedMb / usage.limits.storageMaxMb;
+  const dayShare = usage.last24h.uploads / usage.limits.uploadsPerDay;
+  const tone = (share: number) => (share >= 0.8 ? 'stat bad' : share >= 0.5 ? 'stat warn' : 'stat good');
+  return (
+    <section className="panel">
+      <h2>File storage</h2>
+      {!usage.configured && (
+        <p className="notice">File storage is off: set the R2_* values on the server (docs/files.md).</p>
+      )}
+      <div className="cards">
+        <div className="card">
+          <h3>Stored</h3>
+          <p className={tone(storedShare)}>{storedMb < 10 ? storedMb.toFixed(1) : Math.round(storedMb)} MB</p>
+          <span className="muted small">
+            of {usage.limits.storageMaxMb.toLocaleString('en-KE')} MB before uploads pause · {usage.files} files
+          </span>
+        </div>
+        <div className="card">
+          <h3>Uploads, last 24 hours</h3>
+          <p className={tone(dayShare)}>{usage.last24h.uploads}</p>
+          <span className="muted small">
+            of {usage.limits.uploadsPerDay.toLocaleString('en-KE')} a day · {usage.last24h.rejected} rejected
+          </span>
+        </div>
+        <div className="card">
+          <h3>Per person</h3>
+          <p className="stat">{usage.limits.perPersonPerHour}/hour</p>
+          <span className="muted small">
+            files up to {usage.limits.maxFileBytes / MB} MB · {usage.pending} uploading now
+          </span>
+        </div>
+      </div>
+      <p className="muted small">
+        {usage.bucket ? `Bucket ${usage.bucket}. ` : ''}The two app-wide limits are in Settings; reaching one pauses
+        uploads and opens an incident here.
+      </p>
+    </section>
+  );
+}
+
 function System() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   useEffect(() => {

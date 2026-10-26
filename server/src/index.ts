@@ -9,6 +9,7 @@ import { darajaConfigFromEnv, darajaGateway } from './mpesa/daraja';
 import { startPromptReconciler } from './mpesa/reconcile';
 import { simulatedMpesa } from './mpesa/simulated';
 import { r2ConfigFromEnv, r2FileStore } from './storage/files';
+import { startFileUpkeep } from './files/service';
 import { startTransferWorker } from './money/transfers';
 import { startTimerWorker } from './timers/worker';
 
@@ -51,6 +52,9 @@ const app = buildApp({
   logger: true,
   // The x-dev-user stand-in for a signed-in session: never in production.
   allowDevHeader: !IS_PRODUCTION,
+  // On a host the server sits behind a proxy; on a laptop nothing does.
+  trustProxy: IS_PRODUCTION || process.env.TRUST_PROXY === 'true',
+  requestsPerMinute: Number(process.env.API_REQUESTS_PER_MINUTE ?? 300),
   // Until M-Pesa (Daraja) is connected, the app's "simulated phone" answers
   // PIN prompts. Never in production, whatever .env says.
   simulatePayments: !IS_PRODUCTION && process.env.SIMULATE_MPESA !== 'false',
@@ -117,6 +121,11 @@ const stopTransfers = startTransferWorker(db, mpesa, {
   onError: err => app.log.error({ err }, 'M-Pesa transfers failed'),
 });
 
+// Deletes abandoned uploads and re-checks new files (docs/files.md).
+const stopFiles = files
+  ? startFileUpkeep(db, files, { onError: err => app.log.error({ err }, 'file housekeeping failed') })
+  : () => {};
+
 const stopTimers = startTimerWorker(db, {
   onRun: run => app.log.info({ timers: run }, 'timers fired'),
   onError: err => app.log.error({ err }, 'timer check failed'),
@@ -127,6 +136,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     stopReconciler();
     stopTransfers();
+    stopFiles();
     await stopTimers();
     await app.close();
     await close();

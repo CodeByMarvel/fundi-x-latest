@@ -316,4 +316,5 @@ never edited or deleted.
 | Finance (2026-10-21) | `server/src/admin/finance.ts` |
 | Recent requests, timers, system (2026-10-21) | `server/src/requestLog.ts`, `/admin/requests`, `/admin/timers`, `/admin/system` |
 | Staff and roles (2026-10-26) | `server/src/admin/staff.ts`, `/admin/staff` |
+| Files: list, audited viewing links, storage use and upload limits (2026-10-26) | `server/src/admin/files.ts`, docs/files.md |
 | Website | `admin/` (Vite + React) |

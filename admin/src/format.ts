@@ -48,6 +48,22 @@ export const SETTINGS: Record<
     min: 15,
     max: 300,
   },
+  uploads_per_day_max: {
+    label: 'Uploads per day',
+    help: 'Files the whole app may receive in 24 hours. Far above normal use: reaching it pauses uploads and opens an incident, so a bug or an attack shows up here instead of on the storage bill.',
+    kind: 'number',
+    unit: 'uploads',
+    min: 10,
+    max: 100_000,
+  },
+  storage_max_mb: {
+    label: 'Storage limit',
+    help: "Total size of stored files before uploads pause, in MB. Keep it under the storage provider's free amount (Cloudflare R2: 10 GB).",
+    kind: 'number',
+    unit: 'MB',
+    min: 100,
+    max: 1_000_000,
+  },
   commission_call_out_bps: {
     label: 'Commission on call-outs',
     help: "Fundi-X's share of the call-out fee, taken when it's paid out to the mechanic.",
@@ -107,6 +123,7 @@ export const ACTIONS: Record<string, string> = {
   'staff.role_change': 'Staff role changed',
   'staff.disable': 'Staff member disabled',
   'staff.enable': 'Staff member enabled',
+  'file.view': 'File viewed',
 };
 
 /** Audit actions worth a second look. */

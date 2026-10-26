@@ -32,6 +32,13 @@ export const SETTING_DEFAULTS = {
   commission_service_bps: COMMISSION_BPS.SERVICE,
   /** Parts the mechanic buys for the customer on fixed-price jobs. */
   commission_parts_bps: COMMISSION_BPS.PARTS,
+  /**
+   * Uploads allowed across the whole app in 24 hours (docs/files.md). Far
+   * above normal use; reaching it pauses uploads and opens an incident.
+   */
+  uploads_per_day_max: 2000,
+  /** Total stored before uploads pause: below R2's free 10 GB. */
+  storage_max_mb: 8000,
 };
 
 export type Settings = typeof SETTING_DEFAULTS;
@@ -68,6 +75,10 @@ const RULES: { [K in SettingKey]: (value: unknown) => string | null } = {
   commission_call_out_bps: value => rateProblem(value),
   commission_service_bps: value => rateProblem(value),
   commission_parts_bps: value => rateProblem(value),
+  uploads_per_day_max: value =>
+    wholeBetween(value, 10, 100_000) ? null : 'Daily uploads must be a whole number from 10 to 100,000',
+  storage_max_mb: value =>
+    wholeBetween(value, 100, 1_000_000) ? null : 'Storage limit must be a whole number of MB from 100 to 1,000,000',
 };
 
 /** Commission between 0% and 50%. */

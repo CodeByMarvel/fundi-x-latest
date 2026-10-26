@@ -259,3 +259,13 @@ export type RoleInfo = {
   description: string;
   permissions: string[];
 };
+
+export type FileUsage = {
+  configured: boolean;
+  bucket: string | null;
+  files: number;
+  pending: number;
+  storedBytes: number;
+  last24h: { uploads: number; rejected: number };
+  limits: { storageMaxMb: number; uploadsPerDay: number; perPersonPerHour: number; maxFileBytes: number };
+};

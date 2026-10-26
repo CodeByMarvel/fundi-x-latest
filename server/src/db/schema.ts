@@ -520,7 +520,8 @@ export type IncidentKind =
   | 'server_error' // a request failed with HTTP 500
   | 'timer_failed' // a timer gave up after repeated errors
   | 'timer_worker_error' // the timer worker itself crashed
-  | 'mpesa'; // M-Pesa refused, failed, or sent something unexpected
+  | 'mpesa' // M-Pesa refused, failed, or sent something unexpected
+  | 'storage'; // file uploads paused by a limit, or file storage failing
 
 /**
  * Problems the server noticed by itself, for the Engineering page, so
@@ -746,5 +747,56 @@ export const vehicles = pgTable(
     uniqueIndex('vehicles_user_registration_idx')
       .on(t.userId, t.registrationKey)
       .where(sql`removed_at is null`),
+  ],
+);
+
+/** Why a file was uploaded: decides who may upload it and who sees it. */
+export type FilePurpose = 'MECHANIC_DOCUMENT' | 'DISPUTE_PHOTO';
+
+/**
+ * Files people upload: mechanic documents and dispute photos (docs/files.md).
+ * The bytes live in R2 under `key`; this row says whose they are and what
+ * they're for, and is what every limit counts.
+ *
+ * PENDING: an upload link was handed out. READY: the server saw the file
+ * and it passed. REJECTED: too big or the wrong type (deleted from R2).
+ * DELETED: removed, replaced or never uploaded.
+ */
+export const files = pgTable(
+  'files',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id),
+    purpose: text('purpose').$type<FilePurpose>().notNull(),
+    /** e.g. id_front, selfie, good_conduct, evidence (files/rules.ts). */
+    kind: text('kind').notNull(),
+    /** The disputed job, for dispute photos. */
+    jobId: text('job_id').references(() => jobs.id),
+    /** Where the bytes are in the bucket. Ids only, never names. */
+    key: text('key').notNull().unique(),
+    contentType: text('content_type').notNull(),
+    /** What the app said it would send; counted against limits until READY. */
+    declaredBytes: integer('declared_bytes').notNull(),
+    /** What R2 actually holds, once seen. */
+    bytes: integer('bytes'),
+    status: text('status').$type<'PENDING' | 'READY' | 'REJECTED' | 'DELETED'>().notNull(),
+    statusReason: text('status_reason'),
+    createdAt: createdAt(),
+    /** When the upload link stops working. */
+    linkExpiresAt: timestamp('link_expires_at', { withTimezone: true }).notNull(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    /**
+     * Checked again after the link expired, so a second upload through the
+     * same link (a bigger or different file) can't slip past the limits.
+     */
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+    updatedAt: updatedAt(),
+  },
+  t => [
+    index('files_owner_idx').on(t.ownerId, t.purpose),
+    index('files_job_idx').on(t.jobId),
+    index('files_status_idx').on(t.status, t.createdAt),
   ],
 );

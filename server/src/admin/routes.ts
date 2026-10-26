@@ -2,6 +2,7 @@ import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Database } from '../db/client';
 import type { RequestLog } from '../requestLog';
+import type { FileStore } from '../storage/files';
 import { auditLog, settings, staff } from '../db/schema';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../errors';
 import {
@@ -16,6 +17,7 @@ import type { GoogleIdentity, GoogleVerifier } from './google';
 import { registerAdminCatalog } from './catalog';
 import { registerAdminDashboard } from './dashboard';
 import { registerAdminEngineering } from './engineering';
+import { registerAdminFiles } from './files';
 import { registerAdminFinance } from './finance';
 import { registerAdminJobs } from './jobs';
 import { registerAdminMechanics } from './mechanics';
@@ -69,6 +71,7 @@ export function registerAdminRoutes(
     signInPerMinute: number;
     requestLog: RequestLog;
     features: Record<string, boolean>;
+    files: FileStore | null;
   },
 ) {
   const signInLimit = {
@@ -315,6 +318,7 @@ export function registerAdminRoutes(
       registerAdminMechanics(admin, db);
       registerAdminFinance(admin, db);
       registerAdminStaff(admin, db);
+      registerAdminFiles(admin, db, config.files);
     },
     { prefix: '/admin' },
   );
