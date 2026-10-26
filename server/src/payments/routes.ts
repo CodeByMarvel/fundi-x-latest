@@ -42,7 +42,10 @@ export function registerPaymentRoutes(
       const payment = await startPayment(db, callerOf(request), request.params.id, phone, quoteId);
       // The app watches the payment: PENDING while the prompt is on the
       // phone, or FAILED (not_sent) if M-Pesa couldn't send it.
-      return reply.status(201).send(await sendPrompt(db, mpesa, payment));
+      const sent = await sendPrompt(db, mpesa, payment, err =>
+        request.log.warn({ paymentId: payment.id, reason: err.message }, 'M-Pesa did not send the prompt'),
+      );
+      return reply.status(201).send(sent);
     },
   );
 

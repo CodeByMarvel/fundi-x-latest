@@ -202,9 +202,15 @@ const PROMPT_TEXT: Record<PaymentPurpose, string> = { CALL_OUT: 'Call-out', SERV
 /**
  * Sends the PIN prompt for a payment just recorded by startPayment. If
  * M-Pesa refuses or can't be reached, the payment fails as `not_sent` and
- * the customer can try again; nothing was charged.
+ * the customer can try again; nothing was charged. The customer only sees
+ * "couldn't send"; Daraja's reason goes to `onNotSent` for the log.
  */
-export async function sendPrompt(db: Database, mpesa: MpesaGateway, payment: Payment): Promise<Payment> {
+export async function sendPrompt(
+  db: Database,
+  mpesa: MpesaGateway,
+  payment: Payment,
+  onNotSent: (err: MpesaError) => void = () => {},
+): Promise<Payment> {
   try {
     const sent = await mpesa.stkPush({
       phone: payment.phone,
@@ -223,6 +229,7 @@ export async function sendPrompt(db: Database, mpesa: MpesaGateway, payment: Pay
     if (!(err instanceof MpesaError)) {
       throw err;
     }
+    onNotSent(err);
     await db.transaction(tx => paymentFailed(tx, payment.id, 'not_sent', new Date()));
     const [row] = await db.select().from(payments).where(eq(payments.id, payment.id));
     return toPayment(row);

@@ -7,6 +7,7 @@ import { incidents, payments } from '../src/db/schema';
 import { checkBooks } from '../src/money/check';
 import { MpesaError, type MpesaGateway, type StkOutcome } from '../src/mpesa/gateway';
 import { reconcilePrompts } from '../src/mpesa/reconcile';
+import { sendPrompt } from '../src/payments/service';
 import { runDueTimers } from '../src/timers/worker';
 import { BRIAN, booking, REPAIR, resetTables, WANJIRU } from './fixtures';
 
@@ -144,6 +145,15 @@ describe('M-Pesa Express (STK push) through Daraja', () => {
     fake.refuse = true;
     const { payment } = await prompted();
     expect(payment).toMatchObject({ status: 'FAILED', failureReason: 'not_sent' });
+  });
+
+  it('hands Daraja’s reason for not sending to the log', async () => {
+    const { payment } = await prompted();
+    fake.refuse = true;
+    const reasons: string[] = [];
+    const failed = await sendPrompt(db, gateway, payment, err => reasons.push(err.message));
+    expect(failed).toMatchObject({ status: 'FAILED', failureReason: 'not_sent' });
+    expect(reasons).toEqual(['M-Pesa refused the request (400) Invalid phone']);
   });
 
   it('records money that arrives after we gave up, and refunds it if the job moved on', async () => {
