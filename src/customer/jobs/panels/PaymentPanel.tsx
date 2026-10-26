@@ -14,7 +14,6 @@ import { useAsyncAction } from '../../../shared/hooks/useAsyncAction';
 import { colors } from '../../../shared/theme/colors';
 import { useCustomerProfile } from '../../data/currentCustomer';
 import { paymentFailureText } from '../jobPresentation';
-import { SimulatedPhonePrompt } from './SimulatedPhonePrompt';
 
 /**
  * Paying into escrow with M-Pesa: the call-out before dispatch, the agreed
@@ -56,15 +55,12 @@ export function PaymentPanel({ job, quote }: { job: Job; quote?: Quote }) {
         <Status spinner text={`Sending M-Pesa request to ${phone}…`} />
       )}
       {attempt?.status === 'PENDING' && (
-        <>
-          <Status
-            spinner
-            text={`Check your phone (${formatPhone(
-              attempt.phone,
-            )}) and enter your M-Pesa PIN to pay.`}
-          />
-          <SimulatedPhonePrompt payment={attempt} />
-        </>
+        <Status
+          spinner
+          text={`Check your phone (${formatPhone(
+            attempt.phone,
+          )}) and enter your M-Pesa PIN to pay.`}
+        />
       )}
       {attempt?.status === 'PROCESSING' && (
         <Status spinner text="Confirming your payment with M-Pesa…" />

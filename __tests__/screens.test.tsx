@@ -169,7 +169,7 @@ it('renders every stage of a repair on both sides', async () => {
   const payment = await call(
     billingService.initiatePayment(job.id, '0712345678'),
   );
-  expect(renderJob(job.id).customer).toContain('Simulated phone');
+  expect(renderJob(job.id).customer).toContain('enter your M-Pesa PIN to pay');
   act(() => simulatedPhone.respondToPaymentPrompt(payment.id, 'pay'));
   await wait(2000);
   expect(renderJob(job.id).customer).toContain('Finding a trusted fundi');

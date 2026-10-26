@@ -83,7 +83,12 @@ paid.
    note the test **shortcode** (`174379`) and its **passkey**. For B2C,
    the portal's test credentials page gives a B2C shortcode, the initiator
    name, and lets you generate the **Security Credential** (the initiator
-   password encrypted with Safaricom's certificate).
+   password encrypted with Safaricom's certificate). Or make it here:
+   download Safaricom's sandbox certificate (`.cer`) from the Daraja docs,
+   put `MPESA_B2C_INITIATOR_PASSWORD=…` in `server/.env`, and run
+   `npm run b2c-credential -- <path to the .cer>` in `server/`. It writes
+   `MPESA_B2C_SECURITY_CREDENTIAL` and removes the password line. Going
+   live, use the production certificate and the live initiator password.
 4. **A public address for callbacks.** Safaricom must reach your computer
    over https. Free, no account needed:
    ```

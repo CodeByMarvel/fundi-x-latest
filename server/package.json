@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db": "tsx scripts/db.ts",
-    "books": "tsx scripts/checkBooks.ts"
+    "books": "tsx scripts/checkBooks.ts",
+    "b2c-credential": "tsx scripts/b2cCredential.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.9",

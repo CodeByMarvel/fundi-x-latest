@@ -146,7 +146,7 @@ export const providerRepository = forward('providers', [
 /**
  * Dev-only: answers the simulated M-Pesa prompt that a real phone would
  * show. With the server, it asks the server's simulator (never in
- * production); goes away once Daraja sends real prompts.
+ * production). The app no longer shows a stand-in phone; tests use this.
  */
 export const simulatedPhone = {
   respondToPaymentPrompt: (paymentId: string, response: PhoneResponse) =>
