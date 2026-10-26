@@ -65,7 +65,7 @@ services:
       - key: R2_SECRET_ACCESS_KEY
         sync: false
       - key: R2_BUCKET
-        value: fundix-test
+        value: fundix-dev
 
   # The admin website. Its calls to /admin are passed to the API, so the
   # browser sees one address and the sign-in cookie stays first-party.

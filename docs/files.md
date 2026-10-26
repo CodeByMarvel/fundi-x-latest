@@ -9,17 +9,16 @@ and dispute evidence.
 Cloudflare R2, spoken to in the S3 format (`server/src/storage/files.ts`),
 so another S3-compatible store only needs new settings.
 
-| Bucket | Used by |
-|---|---|
-| `fundix-dev` | the laptop (`server/.env`) |
-| `fundix-test` | the Render test server |
+One bucket, `fundix-dev`, for both the laptop and the Render test server
+while testing (file names are random ids, so they never clash). Real
+users get their own bucket at launch.
 
-Both are **private**: no public access, no `r2.dev` link, no custom domain.
+It is **private**: no public access, no `r2.dev` link, no custom domain.
 
 ## 2. Who gets in
 
 - Only the server holds keys: an R2 API token with **Object Read & Write**
-  on these two buckets only. Never in the app, the admin website, git or
+  on this bucket only. Never in the app, the admin website, git or
   chat.
 - The phone uploads with a link for **one file** that works for 5 minutes.
 - Staff see a file through a viewing link that works for 5 minutes; the
