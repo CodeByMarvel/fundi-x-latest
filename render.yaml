@@ -1,0 +1,85 @@
+# Render Blueprint for the free test setup (docs/deploy.md): the API, the
+# admin website and a PostgreSQL database. Secrets are never in this file:
+# Render asks for every `sync: false` value when the Blueprint is created.
+services:
+  - type: web
+    name: fundix-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    # The server also uses the app's shared rules in src/domain.
+    buildFilter:
+      paths:
+        - server/**
+        - src/domain/**
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fundix-db
+          property: connectionString
+      - key: OWNER_EMAIL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      # The admin website's address, e.g. https://fundix-admin.onrender.com
+      - key: ADMIN_ORIGIN
+        sync: false
+      - key: MPESA_ENV
+        value: sandbox
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_SHORTCODE
+        value: "174379"
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_STK_TYPE
+        value: paybill
+      # This service's own address, e.g. https://fundix-api.onrender.com
+      - key: MPESA_CALLBACK_BASE_URL
+        sync: false
+      # Goes into the callback paths, so letters and digits only (hex):
+      # node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+      - key: MPESA_CALLBACK_SECRET
+        sync: false
+      - key: MPESA_B2C_SHORTCODE
+        value: "174379"
+      - key: MPESA_B2C_INITIATOR_NAME
+        value: testapi
+      - key: MPESA_B2C_SECURITY_CREDENTIAL
+        sync: false
+
+  # The admin website. Its calls to /admin are passed to the API, so the
+  # browser sees one address and the sign-in cookie stays first-party.
+  - type: web
+    name: fundix-admin
+    runtime: static
+    rootDir: admin
+    buildFilter:
+      paths:
+        - admin/**
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+    routes:
+      - type: rewrite
+        source: /admin/*
+        destination: https://fundix-api.onrender.com/admin/*
+
+databases:
+  - name: fundix-db
+    plan: free
+    region: frankfurt
+    databaseName: fundix
+    user: fundix
