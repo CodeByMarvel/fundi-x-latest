@@ -29,7 +29,7 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
-      # The admin website's address, e.g. https://fundix-admin.onrender.com
+      # The admin website's address: https://fundi-x-latest.vercel.app
       - key: ADMIN_ORIGIN
         sync: false
       - key: MPESA_ENV

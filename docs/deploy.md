@@ -12,10 +12,11 @@ stay on the Daraja sandbox ([mpesa.md](mpesa.md)).
 | Piece | Render service | Address |
 |---|---|---|
 | API (the server) | `fundix-api`, free web service, Frankfurt | `https://fundix-api.onrender.com` |
-| Admin website | `fundix-admin`, free static site | `https://fundix-admin.onrender.com` |
+| Admin website | Vercel project `fundi-x-latest` (root `admin/`) | `https://fundi-x-latest.vercel.app` |
 | Database | `fundix-db`, free PostgreSQL | private, only the API reaches it |
 
-The admin website passes its `/admin` calls on to the API, so the browser
+The admin website passes its `/admin` calls on to the API
+([`admin/vercel.json`](../admin/vercel.json)), so the browser
 sees one address and the sign-in cookie works as it does locally.
 
 The server runs with `NODE_ENV=production`: real Google sign-in only, no
@@ -45,7 +46,7 @@ sample data, no test mechanic, no simulated M-Pesa. Testing a job needs
    |---|---|
    | `OWNER_EMAIL` | your Google email: the first admin |
    | `GOOGLE_CLIENT_ID` | same as in `server/.env` |
-   | `ADMIN_ORIGIN` | `https://fundix-admin.onrender.com` |
+   | `ADMIN_ORIGIN` | `https://fundi-x-latest.vercel.app` |
    | `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_PASSKEY`, `MPESA_B2C_SECURITY_CREDENTIAL` | same as in `server/.env` |
    | `MPESA_CALLBACK_BASE_URL` | `https://fundix-api.onrender.com` |
    | `MPESA_CALLBACK_SECRET` | a new one: `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"` |
@@ -65,9 +66,22 @@ Every push to `main` redeploys whatever changed.
 
 In Google Cloud Console → APIs & Services → Credentials → the **Web
 client** used for `GOOGLE_CLIENT_ID`: add
-`https://fundix-admin.onrender.com` to **Authorized JavaScript origins**.
+`https://fundi-x-latest.vercel.app` to **Authorized JavaScript origins**.
 The phone app needs no change: the release build is signed with the same
 key as the development build.
+
+## 4a. Admin website on Vercel
+
+The admin site is hosted on Vercel (the `fundix-admin` static site in
+`render.yaml` does the same job; only the address in `ADMIN_ORIGIN` can
+sign in and make changes).
+
+- Vercel project settings: **Root Directory** `admin`, framework **Vite**
+  (build `npm run build`, output `dist`). Every push to `main` redeploys.
+- **No `VITE_API_URL`** on Vercel. `admin/vercel.json` passes `/admin/*`
+  and `/health` to the API, so the browser sees one address and the
+  sign-in cookie stays first-party.
+- If the API's address changes, change it in `admin/vercel.json`.
 
 ## 5. The app on a phone
 

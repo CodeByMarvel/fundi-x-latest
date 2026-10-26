@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/admin/:path*", "destination": "https://fundix-api.onrender.com/admin/:path*" },
+    { "source": "/health", "destination": "https://fundix-api.onrender.com/health" }
+  ]
+}
