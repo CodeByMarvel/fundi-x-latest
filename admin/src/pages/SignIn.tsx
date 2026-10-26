@@ -11,7 +11,11 @@ type State =
 function explain(err: unknown) {
   if (err instanceof ApiError) {
     if (err.status === 403) {
-      return "This Google account isn't allowed into the Fundi-X admin console.";
+      // Not only "not staff": a server whose ADMIN_ORIGIN isn't this site's
+      // address refuses too, and that needs a different fix.
+      return err.message.startsWith('Request did not come from')
+        ? `The server doesn't accept sign-ins from ${window.location.origin} yet: set ADMIN_ORIGIN on the server to this address.`
+        : "This Google account isn't allowed into the Fundi-X admin console.";
     }
     if (err.status === 401) {
       return 'Google sign-in failed. Please try again.';
