@@ -1,4 +1,6 @@
 import { config } from '../config';
+import type { Coordinates } from '../domain/jobs/request';
+import type { Transport } from '../domain/providers/skills';
 
 /**
  * Calls to the Fundi-X server for signing in and the signed-in account.
@@ -6,6 +8,18 @@ import { config } from '../config';
  */
 
 export type AccountRole = 'customer' | 'provider';
+
+/** What a mechanic fills in (docs/mechanic-onboarding.md, "Profile"). */
+export type ProviderProfileInput = {
+  type: 'mechanic' | 'garage';
+  businessName?: string;
+  skills: string[];
+  experienceYears: number;
+  transport: Transport;
+  base: Coordinates;
+  baseDescription: string;
+  travelKm: number;
+};
 
 export type Account = {
   id: string;
@@ -17,7 +31,15 @@ export type Account = {
   provider: {
     type: 'mechanic' | 'garage';
     businessName: string | null;
+    /** Built by the server from the skills, e.g. "Brakes, Electrical +3". */
     specialty: string;
+    /** Empty, and the next fields null, on a profile from before v2. */
+    skills: string[];
+    experienceYears: number | null;
+    transport: Transport | null;
+    base: Coordinates | null;
+    baseDescription: string | null;
+    travelKm: number | null;
     verification: 'PENDING' | 'VERIFIED' | 'REJECTED';
     /** Fundi-X's words with the decision, e.g. why it was rejected. */
     verificationNote?: string | null;
@@ -83,7 +105,7 @@ export const authApi = {
     request<Account>('/me/phone', { method: 'PUT', body: { phone }, token }),
   setProviderProfile: (
     token: string,
-    profile: { type: 'mechanic' | 'garage'; businessName?: string; specialty: string },
+    profile: ProviderProfileInput,
   ) => request<Account>('/me/provider', { method: 'PUT', body: profile, token }),
   signOut: (token: string) => request('/auth/sign-out', { method: 'POST', token }),
   deleteAccount: (token: string) => request('/me', { method: 'DELETE', token }),

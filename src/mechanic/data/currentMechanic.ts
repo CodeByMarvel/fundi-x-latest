@@ -25,13 +25,13 @@ export function useMechanicProfile() {
   if (state.status !== 'signedIn') {
     return demoProfile;
   }
-  const { name, email } = state.account;
+  const { name, email, provider } = state.account;
   const [firstName, ...rest] = name.trim().split(/\s+/);
   return {
     firstName: firstName ?? '',
     lastName: rest.join(' '),
-    // Their area isn't asked for yet; the server matches on live position.
-    location: 'Nairobi',
+    // Where they work from, in their own words (profile v2).
+    location: provider?.baseDescription ?? '',
     email: email ?? '',
   };
 }

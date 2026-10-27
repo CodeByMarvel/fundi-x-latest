@@ -5,7 +5,7 @@ import { buildApp } from '../src/app';
 import { createDatabase, type Database } from '../src/db/client';
 import { providers, savedPlaces, users } from '../src/db/schema';
 import { matchingCell } from '../src/matching/h3';
-import { BRIAN, OTIENO, REPAIR, resetTables, WANJIRU } from './fixtures';
+import { BRIAN, OTIENO, REPAIR, resetTables, WANJIRU, WORKS_EVERYWHERE } from './fixtures';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -87,6 +87,7 @@ describe('nearby mechanics', () => {
       userId: id,
       type: 'mechanic',
       specialty: 'Brakes',
+      ...WORKS_EVERYWHERE,
       payoutPhone: '254799000000',
       verification: 'VERIFIED',
       online: true,

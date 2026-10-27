@@ -1,3 +1,4 @@
+import { SKILLS } from '../../../src/domain/providers/skills';
 import { and, desc, eq, ilike, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
@@ -389,7 +390,13 @@ export function registerAdminSupport(admin: FastifyInstance, db: Database) {
         signsInWith: [user.googleSubject && 'Google', user.appleSubject && 'Apple'].filter(Boolean),
         createdAt: user.createdAt,
       },
-      provider: provider ?? null,
+      provider: provider
+        ? {
+            ...provider,
+            // Readable for the reviewer; ids stay as they are in `skills`.
+            skillLabels: SKILLS.filter(s => provider.skills?.includes(s.id)).map(s => s.label),
+          }
+        : null,
       jobs: userJobs,
       sessions,
       money,

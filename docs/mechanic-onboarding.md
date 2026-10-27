@@ -1,6 +1,8 @@
 # Mechanic onboarding
 
-Status: **agreed design, not built** (brainstormed 2026-10-22).
+Status: **agreed design** (brainstormed 2026-10-22). Built: stage 1, stage 2
+without the photo, and the skill and travel-limit matching (profile v2,
+2026-10-27). File storage on the server is built (files.md); the rest is not.
 
 How a mobile mechanic goes from "signed in with Google" to "can go
 online and receive jobs". Today it is: phone number, one profile screen
@@ -24,15 +26,30 @@ they stand without phoning Fundi-X.
 ### 1. Account (built)
 Google sign-in (Apple on iOS later), phone number.
 
-### 2. Profile
+### 2. Profile (built 2026-10-27, except the photo)
 - Profile photo (shown to customers when the mechanic is on the way).
+  Moved to stage 3, so all the camera and upload work is done together.
 - Mobile mechanics only for now (garages parked).
 - **Skills**: picked from the job categories (the same ids as
   `src/customer/request/data/categories`), at least one.
 - Years of experience.
-- Transport: motorbike, car, public transport, none (garage).
+- Transport: motorbike, car, public transport, on foot.
 - **Base**: set from GPS where they are, plus a description; **travel
-  limit** in km (e.g. 3 / 5 / 10 / 15).
+  limit** in km: 3 / 5 / 10 / 15 / 25.
+
+As built (defaults chosen 2026-10-27):
+- Skills are the job categories one to one (src/domain/providers/skills.ts,
+  a test keeps them in step with the app's categories). "Something else",
+  "Other service" and packages added later in the admin portal aren't
+  skills: those jobs go to any mechanic.
+- Customers see a summary of the skills under the name ("Brakes,
+  Electrical +3"), built by the server; the old free-text specialty is
+  no longer asked.
+- Mechanics from before v2 are sent back to the profile screen (filled in
+  with what they had), can't go online, and aren't matched until they
+  finish it. Their verification is kept.
+- The admin person page shows skills, experience, transport, base (with a
+  map link) and travel limit.
 
 ### 3. Documents
 - National ID, front and back.
@@ -74,8 +91,10 @@ Plus a phone call before approving (logged as a note).
 ## Matching changes
 
 - Offer only to providers whose skills include the job's category.
-- Skip providers whose live position is beyond their travel limit from
-  their base (distance from base to the job).
+  *(Built.)*
+- Skip providers whose job is beyond their travel limit from their base
+  (straight-line distance from base to the job). *(Built; the customers'
+  "nearby mechanics" list uses the same limit.)*
 - Probation: smaller max ring.
 
 ## Still to decide (later)
@@ -89,8 +108,9 @@ Plus a phone call before approving (logged as a note).
 
 ## Proposed build order
 
-1. Profile v2 (skills, base + travel limit, transport, experience) + matching
-   filters. No file storage needed; fixes the "Nairobi" placeholder.
-2. File storage (R2) + document and photo upload + admin review page.
+1. ~~Profile v2 (skills, base + travel limit, transport, experience) +
+   matching filters.~~ Done 2026-10-27.
+2. File storage (R2) + document and photo upload (incl. the profile photo)
+   + admin review page. Server side done (files.md).
 3. Payout name check (KSh 1 B2C).
 4. Checklist screen, code of conduct, probation, Good Conduct expiry.

@@ -23,7 +23,7 @@ import { lockJob } from '../src/jobs/store';
 import { matchingCell } from '../src/matching/h3';
 import { callOutPaid } from '../src/matching/service';
 import { runDueTimers } from '../src/timers/worker';
-import { BRIAN, booking, OTIENO, REPAIR, resetTables, SERVICE, WANJIRU } from './fixtures';
+import { BRIAN, booking, OTIENO, REPAIR, resetTables, SERVICE, WANJIRU, WORKS_EVERYWHERE } from './fixtures';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -118,6 +118,7 @@ async function addProvider(id: string) {
     userId: id,
     type: 'mechanic',
     specialty: 'Brakes',
+    ...WORKS_EVERYWHERE,
     payoutPhone: '254799000000',
     verification: 'VERIFIED',
     online: true,

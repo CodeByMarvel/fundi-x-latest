@@ -83,6 +83,15 @@ export type PersonDetail = {
     type: 'mechanic' | 'garage';
     businessName: string | null;
     specialty: string;
+    /** Profile v2; empty or null on profiles from before it. */
+    skills: string[] | null;
+    skillLabels: string[];
+    experienceYears: number | null;
+    transport: string | null;
+    baseLat: number | null;
+    baseLng: number | null;
+    baseDescription: string | null;
+    travelKm: number | null;
     payoutPhone: string;
     verification: Verification;
     verificationNote: string | null;

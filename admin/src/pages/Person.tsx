@@ -170,8 +170,35 @@ export function Person({ id, can }: { id: string; can: (p: Permission) => boolea
           <section className="panel">
             <h2>Mechanic profile</h2>
             <dl>
-              <dt>Specialty</dt>
-              <dd>{provider.specialty}</dd>
+              <dt>Skills</dt>
+              <dd>
+                {provider.skillLabels.length
+                  ? provider.skillLabels.join(', ')
+                  : <span className="muted">Not given yet (profile from before skills were asked)</span>}
+              </dd>
+              <dt>Experience</dt>
+              <dd>{provider.experienceYears === null ? '—' : `${provider.experienceYears} year${provider.experienceYears === 1 ? '' : 's'}`}</dd>
+              <dt>Gets around by</dt>
+              <dd>{provider.transport ? humanize(provider.transport) : '—'}</dd>
+              <dt>Works from</dt>
+              <dd>
+                {provider.baseLat !== null && provider.baseLng !== null ? (
+                  <>
+                    {provider.baseDescription}{' '}
+                    <a
+                      href={`https://www.google.com/maps?q=${provider.baseLat},${provider.baseLng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="small"
+                    >
+                      map
+                    </a>
+                    <div className="muted small">Takes jobs up to {provider.travelKm} km from here</div>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </dd>
               <dt>Payouts to</dt>
               <dd className="mono">{provider.payoutPhone}</dd>
               <dt>Online</dt>

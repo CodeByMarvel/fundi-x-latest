@@ -17,7 +17,7 @@ import { matchingCell, ringsApart, zoneCell } from '../src/matching/h3';
 import { callOutPaid, PROVIDER_LOCATION_MAX_AGE_MS } from '../src/matching/service';
 import { setSetting } from '../src/settings';
 import { runDueTimers } from '../src/timers/worker';
-import { BRIAN, booking, REPAIR, resetTables, WANJIRU } from './fixtures';
+import { BRIAN, booking, REPAIR, resetTables, WANJIRU, WORKS_EVERYWHERE } from './fixtures';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -43,7 +43,12 @@ const north = (km: number): Coordinates => ({ lat: HOME.lat + km / 111, lng: HOM
 async function provider(
   id: string,
   where: Coordinates,
-  { at = new Date(), online = true, verification = 'VERIFIED' as const } = {},
+  {
+    at = new Date(),
+    online = true,
+    verification = 'VERIFIED' as const,
+    profile = {} as Partial<typeof providers.$inferInsert>,
+  } = {},
 ) {
   await db.insert(users).values({
     id,
@@ -58,6 +63,8 @@ async function provider(
     userId: id,
     type: 'mechanic',
     specialty: 'Brakes',
+    ...WORKS_EVERYWHERE,
+    ...profile,
     payoutPhone: '254799000000',
     verification,
     online,
@@ -82,8 +89,8 @@ async function book(details = REPAIR) {
 }
 
 /** Books a job and pretends M-Pesa confirmed the call-out at `at`. */
-async function paidJob(at = new Date()) {
-  const { id } = await book();
+async function paidJob(at = new Date(), details = REPAIR) {
+  const { id } = await book(details);
   return db.transaction(async tx => callOutPaid(tx, await lockJob(tx, id), at));
 }
 
@@ -251,6 +258,31 @@ describe('matching', () => {
     const third = await paidJob(now);
     expect([first.offeredProviderId, second.offeredProviderId].sort()).toEqual(['a', 'b']);
     expect(third.status).toBe('SEARCHING');
+  });
+
+  it('only offers a job to mechanics with its skill, within their travel limit from base', async () => {
+    const now = new Date();
+    // Right next to the job, but no brakes.
+    await provider('no-brakes', HOME, { profile: { skills: ['electrical'] } });
+    // Near the job now, but based 8 km away with a 5 km limit.
+    await provider('far-base', HOME, { profile: { baseLat: north(8).lat, travelKm: 5 } });
+    // A profile from before v2: no skills or base yet.
+    await provider('old-profile', HOME, {
+      profile: { skills: null, experienceYears: null, transport: null, baseLat: null, baseLng: null, baseDescription: null, travelKm: null },
+    });
+    await provider('fits', north(1.5), { profile: { skills: ['brakes'], baseLat: north(4).lat, travelKm: 5 } });
+
+    const paidAt = new Date(now);
+    const job = await paidJob(paidAt);
+    const ring = ringsApart(matchingCell(HOME), matchingCell(north(1.5)));
+    await runAt(...Array.from({ length: ring }, (_, i) => plus(paidAt, (i + 1) * 10 * SECOND)));
+    expect(await jobRow(job.id)).toMatchObject({ status: 'OFFERED', offeredProviderId: 'fits' });
+  });
+
+  it('offers "something else" jobs to any mechanic', async () => {
+    await provider('electrician', HOME, { profile: { skills: ['electrical'] } });
+    const job = await paidJob(new Date(), { ...REPAIR, categoryId: 'other_repair', answers: {} });
+    expect(job.offeredProviderId).toBe('electrician');
   });
 
   it('moves on when an offer expires, records it, and never asks the same provider twice', async () => {

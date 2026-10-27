@@ -9,7 +9,13 @@ import {
   useState,
 } from 'react';
 import { selectMockBackend, selectServerBackend } from '../data/backend';
-import { Account, AccountRole, authApi, ServerError } from './api';
+import {
+  Account,
+  AccountRole,
+  authApi,
+  ProviderProfileInput,
+  ServerError,
+} from './api';
 import { googleCredential } from './google';
 import { clearToken, loadToken, saveToken } from './tokenStore';
 
@@ -25,11 +31,7 @@ type AuthValue = {
   /** Resolves false if the person backed out of Google's picker. */
   signInWithGoogle: (role: AccountRole) => Promise<boolean>;
   setPhone: (phone: string) => Promise<void>;
-  setProviderProfile: (profile: {
-    type: 'mechanic' | 'garage';
-    businessName?: string;
-    specialty: string;
-  }) => Promise<void>;
+  setProviderProfile: (profile: ProviderProfileInput) => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   enterDemo: () => void;

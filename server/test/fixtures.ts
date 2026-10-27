@@ -3,6 +3,7 @@ import type { JobRequestDetails } from '../../src/domain/jobs/types';
 import type { Catalog } from '../../src/domain/pricing/catalog';
 import { calculateEstimate } from '../../src/domain/pricing/engine';
 import type { Database } from '../src/db/client';
+import { SKILL_IDS } from '../../src/domain/providers/skills';
 import { providers, users } from '../src/db/schema';
 
 export const REPAIR: JobRequestDetails = {
@@ -71,9 +72,24 @@ export async function resetTables(db: Database) {
     userId: 'p1',
     type: 'mechanic',
     specialty: 'Brakes',
+    ...WORKS_EVERYWHERE,
     payoutPhone: '254712000101',
     verification: 'VERIFIED',
     createdAt: at,
     updatedAt: at,
   });
 }
+
+/**
+ * Profile v2 for test mechanics: every skill, based at the customer's home
+ * and willing to travel far, so only the test's own choices decide matching.
+ */
+export const WORKS_EVERYWHERE = {
+  skills: [...SKILL_IDS],
+  experienceYears: 5,
+  transport: 'motorbike' as const,
+  baseLat: -1.2795,
+  baseLng: 36.7845,
+  baseDescription: 'Kilimani',
+  travelKm: 25,
+};

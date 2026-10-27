@@ -17,6 +17,7 @@ import {
 import { newId } from '../ids';
 import { settle } from '../jobs/service';
 import { saveJob } from '../jobs/store';
+import { canTakeJob } from '../providers/profile';
 import { getSetting } from '../settings';
 import { scheduleTimer } from '../timers/schedule';
 import { cellsWithin, matchingCell, metresBetween, ringsApart } from './h3';
@@ -165,6 +166,7 @@ async function bestCandidate(
     exclude: asked,
   });
   const ranked = rows
+    .filter(r => canTakeJob(r, coords, job.categoryId))
     .map(r => ({
       id: r.id,
       ring: ringsApart(jobCell, r.h3Cell!),
@@ -202,12 +204,9 @@ async function bestCandidate(
 }
 
 /**
- * Providers who could take a job right now: verified, active, online,
- * with a recent position, and not busy (no unfinished job, no open offer).
- */
-/**
  * Providers who could take a job right now: online, verified, active, a
  * fresh position, not busy. Also lists "nearby" mechanics for customers.
+ * Skills and travel limit are checked by the caller (canTakeJob).
  */
 export function eligibleProviders(
   tx: Tx | Database,
@@ -229,6 +228,10 @@ export function eligibleProviders(
       lng: providers.lng,
       ratingTotal: providers.ratingTotal,
       ratingCount: providers.ratingCount,
+      skills: providers.skills,
+      baseLat: providers.baseLat,
+      baseLng: providers.baseLng,
+      travelKm: providers.travelKm,
       recentEvents: sql<number>`(
         select count(*) from ${reliabilityEvents}
         where ${reliabilityEvents.providerId} = ${providers.userId}

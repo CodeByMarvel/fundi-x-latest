@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type Database } from '../src/db/client';
 import { auditLog, jobEvents, providers, reliabilityEvents, users } from '../src/db/schema';
 import { adminHarness } from './adminHarness';
-import { BRIAN, OTIENO, REPAIR, SERVICE, WANJIRU } from './fixtures';
+import { BRIAN, OTIENO, REPAIR, SERVICE, WANJIRU, WORKS_EVERYWHERE } from './fixtures';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -186,6 +186,7 @@ describe('mechanics: verification', () => {
       type: 'garage',
       businessName: 'Achieng Motors',
       specialty: 'Service',
+      ...WORKS_EVERYWHERE,
       payoutPhone: '254712000202',
       verification: 'PENDING',
       createdAt: at,
@@ -213,7 +214,7 @@ describe('mechanics: verification', () => {
     const me = await h.appOk('GET', '/me', ACHIENG);
     expect(me.provider).toMatchObject({ verification: 'REJECTED', verificationNote: 'Please add your garage business permit' });
 
-    await h.appOk('PUT', '/me/provider', ACHIENG, { type: 'garage', businessName: 'Achieng Motors Ltd', specialty: 'Service' });
+    await h.appOk('PUT', '/me/provider', ACHIENG, { type: 'garage', businessName: 'Achieng Motors Ltd', skills: ['routine_service'], experienceYears: 3, transport: 'car', base: { lat: -1.29, lng: 36.78 }, baseDescription: 'Westlands', travelKm: 5 });
     expect((await h.appOk('GET', '/me', ACHIENG)).provider.verification).toBe('PENDING');
   });
 

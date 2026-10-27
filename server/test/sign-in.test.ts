@@ -203,33 +203,91 @@ describe('phone number', () => {
   });
 });
 
+const PROFILE = {
+  type: 'mechanic',
+  skills: ['electrical', 'brakes', 'diagnostics'],
+  experienceYears: 6,
+  transport: 'motorbike',
+  base: { lat: -1.2921, lng: 36.7856 },
+  baseDescription: '  Kilimani, near Yaya Centre ',
+  travelKm: 10,
+};
+
 describe('mechanic profile', () => {
   it('needs the phone first, then waits for Fundi-X to verify it', async () => {
     const { headers } = await signedIn(undefined, 'provider');
-    const profile = { type: 'mechanic', specialty: 'Brakes and suspension' };
-    expect((await call('PUT', '/me/provider', headers, profile)).json().error).toBe('phone_required');
+    expect((await call('PUT', '/me/provider', headers, PROFILE)).json().error).toBe('phone_required');
 
     await call('PUT', '/me/phone', headers, { phone: '0722000111' });
-    const res = await call('PUT', '/me/provider', headers, profile);
+    const res = await call('PUT', '/me/provider', headers, PROFILE);
     expect(res.json()).toMatchObject({
       nextStep: null,
-      provider: { type: 'mechanic', specialty: 'Brakes and suspension', verification: 'PENDING' },
+      provider: {
+        type: 'mechanic',
+        // Skills in the catalogue's order; the summary is what customers see.
+        skills: ['electrical', 'brakes', 'diagnostics'],
+        specialty: 'Electrical, Brakes +1',
+        experienceYears: 6,
+        transport: 'motorbike',
+        base: { lat: -1.2921, lng: 36.7856 },
+        baseDescription: 'Kilimani, near Yaya Centre',
+        travelKm: 10,
+        verification: 'PENDING',
+      },
     });
+  });
+
+  it('refuses unknown skills, no skills and odd travel limits', async () => {
+    const { headers } = await signedIn(undefined, 'provider');
+    await call('PUT', '/me/phone', headers, { phone: '0722000111' });
+    for (const bad of [
+      { skills: [] },
+      { skills: ['flying'] },
+      { skills: ['other_repair'] },
+      { travelKm: 7 },
+      { baseDescription: '   ' },
+    ]) {
+      expect((await call('PUT', '/me/provider', headers, { ...PROFILE, ...bad })).statusCode).toBe(400);
+    }
+  });
+
+  it('asks mechanics from before profile v2 to finish it, and keeps them offline until then', async () => {
+    const { headers, account } = await signedIn(undefined, 'provider');
+    await call('PUT', '/me/phone', headers, { phone: '0722000111' });
+    const at = new Date();
+    await db.insert(providers).values({
+      userId: account.id,
+      type: 'mechanic',
+      specialty: 'Brakes',
+      payoutPhone: '254722000111',
+      verification: 'VERIFIED',
+      createdAt: at,
+      updatedAt: at,
+    });
+    expect((await call('GET', '/me', headers)).json().nextStep).toBe('provider_profile');
+    const online = await call('PUT', '/provider/availability', headers, {
+      online: true,
+      location: { lat: -1.2921, lng: 36.7856 },
+    });
+    expect(online.json().error).toBe('provider_profile');
+
+    const res = await call('PUT', '/me/provider', headers, PROFILE);
+    expect(res.json()).toMatchObject({ nextStep: null, provider: { verification: 'VERIFIED' } });
   });
 
   it('keeps the verification decision when the profile is edited', async () => {
     const { headers, account } = await signedIn(undefined, 'provider');
     await call('PUT', '/me/phone', headers, { phone: '0722000111' });
-    await call('PUT', '/me/provider', headers, { type: 'mechanic', specialty: 'Brakes' });
+    await call('PUT', '/me/provider', headers, PROFILE);
     await db.update(providers).set({ verification: 'VERIFIED' }).where(eq(providers.userId, account.id));
-    const res = await call('PUT', '/me/provider', headers, { type: 'garage', businessName: 'Kilimani Auto', specialty: 'Full service' });
-    expect(res.json().provider).toMatchObject({ type: 'garage', verification: 'VERIFIED' });
+    const res = await call('PUT', '/me/provider', headers, { ...PROFILE, type: 'garage', businessName: 'Kilimani Auto', travelKm: 15 });
+    expect(res.json().provider).toMatchObject({ type: 'garage', travelKm: 15, verification: 'VERIFIED' });
   });
 
   it('is only for mechanic accounts', async () => {
     const { headers } = await signedIn();
     await call('PUT', '/me/phone', headers, { phone: '0712345678' });
-    expect((await call('PUT', '/me/provider', headers, { type: 'mechanic', specialty: 'Brakes' })).statusCode).toBe(403);
+    expect((await call('PUT', '/me/provider', headers, PROFILE)).statusCode).toBe(403);
   });
 });
 

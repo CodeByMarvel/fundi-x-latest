@@ -11,6 +11,7 @@ import { ConflictError, NotFoundError } from '../errors';
 import { cellsWithin, matchingCell, metresBetween } from '../matching/h3';
 import { eligibleProviders } from '../matching/service';
 import { getSetting } from '../settings';
+import { canTakeJob, profileComplete } from './profile';
 import { toRelease } from '../payments/service';
 
 const coordsSchema = {
@@ -220,6 +221,8 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
         exclude: [],
       });
       const nearest = rows
+        // Only mechanics who would come this far from their base.
+        .filter(r => canTakeJob(r, here))
         .map(r => ({ id: r.id, metres: metresBetween(here, { lat: r.lat!, lng: r.lng! }) }))
         .sort((a, b) => a.metres - b.metres)
         .slice(0, NEARBY_LIMIT);
@@ -268,6 +271,9 @@ export function registerProviderRoutes(app: FastifyInstance, db: Database) {
             'not_verified',
             'Fundi-X is still checking your profile. You can go online once it is verified.',
           );
+        }
+        if (!profileComplete(provider)) {
+          throw new ConflictError('provider_profile', 'Finish your profile to go online');
         }
         if (!location) {
           throw new ConflictError('location_required', 'Turn on location to go online');

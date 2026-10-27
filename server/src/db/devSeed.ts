@@ -1,3 +1,5 @@
+import { and, inArray, isNull } from 'drizzle-orm';
+import { SKILL_IDS } from '../../../src/domain/providers/skills';
 import type { Database } from './client';
 import { providers, users } from './schema';
 
@@ -29,4 +31,20 @@ export async function seedDevData(db: Database) {
       { userId: 'p3', type: 'mechanic', specialty: 'Engine diagnostics', payoutPhone: '254733000303', ...provider },
     ])
     .onConflictDoNothing();
+
+  // Profile v2 (skills, base, travel limit): the demo mechanics take every
+  // kind of job anywhere in Nairobi. Filled in once, also on databases
+  // seeded before v2 existed; later edits are kept.
+  await db
+    .update(providers)
+    .set({
+      skills: [...SKILL_IDS],
+      experienceYears: 6,
+      transport: 'motorbike',
+      baseLat: -1.2921,
+      baseLng: 36.7856,
+      baseDescription: 'Kilimani, Nairobi',
+      travelKm: 25,
+    })
+    .where(and(inArray(providers.userId, ['p1', 'p2', 'p3']), isNull(providers.skills)));
 }

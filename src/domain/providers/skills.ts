@@ -30,7 +30,7 @@ export const SKILL_IDS: readonly string[] = SKILLS.map(s => s.id);
 export const TRANSPORTS = [
   { id: 'motorbike', label: 'Motorbike' },
   { id: 'car', label: 'Car' },
-  { id: 'public', label: 'Public transport' },
+  { id: 'public_transport', label: 'Public transport' },
   { id: 'on_foot', label: 'On foot' },
 ] as const;
 

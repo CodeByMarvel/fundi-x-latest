@@ -123,11 +123,14 @@ test('a new customer signs in with Google, adds a phone number, and reaches the 
 });
 
 test('a mechanic is asked for their work profile after the phone number', async () => {
-  server({
+  const calls = server({
     'GET /auth/config': () => ({ json: { googleClientId: 'web-client', appleEnabled: false } }),
     'POST /auth/google': () => ({ json: { token: 'tok_2', account: newAccount('provider') } }),
     'PUT /me/phone': () => ({
       json: { ...newAccount('provider'), phone: '254722000111', nextStep: 'provider_profile' },
+    }),
+    'PUT /me/provider': () => ({
+      json: { ...newAccount('provider'), phone: '254722000111', nextStep: null },
     }),
   });
   await start();
@@ -136,6 +139,25 @@ test('a mechanic is asked for their work profile after the phone number', async 
   await type('0712 345 678', '0722000111');
   await press('Continue');
   expect(text()).toContain('Tell us about your work');
+
+  await press('Brakes');
+  await press('Electrical');
+  await type('5', '7');
+  await press('Motorbike');
+  await press('Use where I am now'); // the test GPS is in Kilimani
+  await type('Kilimani, near Yaya Centre', ' Kilimani stage ');
+  await press('10 km');
+  await press('Submit for verification');
+  expect(calls.find(c => c.path === 'PUT /me/provider')?.body).toEqual({
+    type: 'mechanic',
+    skills: ['brakes', 'electrical'],
+    experienceYears: 7,
+    transport: 'motorbike',
+    base: { lat: -1.2921, lng: 36.7856 },
+    baseDescription: 'Kilimani stage',
+    travelKm: 10,
+  });
+  expect(text()).not.toContain('Tell us about your work');
 });
 
 test('a saved session goes straight to the app; one the server refuses is cleared', async () => {

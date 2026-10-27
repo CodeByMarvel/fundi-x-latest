@@ -17,6 +17,7 @@ import { jobs, providers, users, type UserRole } from '../db/schema';
 import { BadRequestError, ConflictError, ForbiddenError } from '../errors';
 import { newId } from '../ids';
 import type { AppleVerifier } from './apple';
+import { profileComplete } from '../providers/profile';
 import { forgetPlaces } from './places';
 import { forgetVehicles } from './vehicles';
 import { normalizeKenyanPhone } from './phone';
@@ -50,20 +51,6 @@ type ProfileBody = {
   travelKm: number;
 };
 
-/**
- * Whether a provider has filled in profile v2. Profiles from before it are
- * asked again (nextStep) and aren't offered jobs until then.
- */
-export function profileComplete(p: typeof providers.$inferSelect) {
-  return (
-    !!p.skills?.length &&
-    p.baseLat !== null &&
-    p.baseLng !== null &&
-    p.travelKm !== null &&
-    p.transport !== null &&
-    p.experienceYears !== null
-  );
-}
 
 /**
  * What the app needs to know about the signed-in account, including the
