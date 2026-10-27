@@ -25,6 +25,7 @@ import type {
   JobStatus,
   PricingMode,
 } from '../../../src/domain/jobs/types';
+import type { Transport } from '../../../src/domain/providers/skills';
 import type {
   ProviderType,
   ReliabilityEventType,
@@ -130,7 +131,23 @@ export const providers = pgTable('providers', {
   type: text('type').$type<ProviderType>().notNull(),
   /** A garage's trading name; a solo mechanic goes by the user's name. */
   businessName: text('business_name'),
+  /** The line customers see under the name; built from `skills`. */
   specialty: text('specialty').notNull(),
+  /**
+   * Profile v2 (docs/mechanic-onboarding.md), from here to travel_km. Null
+   * on profiles made before it: the app asks again, and matching skips the
+   * mechanic until they're filled in. Skills are the job categories they
+   * take (SKILLS in src/domain/providers/skills.ts).
+   */
+  skills: text('skills').array(),
+  experienceYears: integer('experience_years'),
+  transport: text('transport').$type<Transport>(),
+  /** Where they work from; jobs further than travel_km from here aren't offered. */
+  baseLat: doublePrecision('base_lat'),
+  baseLng: doublePrecision('base_lng'),
+  /** In their words, e.g. "Kilimani, near Yaya Centre". */
+  baseDescription: text('base_description'),
+  travelKm: integer('travel_km'),
   /** Where payouts go. Often, but not always, the login phone. */
   payoutPhone: text('payout_phone').notNull(),
   /** Only VERIFIED providers are offered jobs (checked by an admin). */

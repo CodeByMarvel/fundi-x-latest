@@ -2,6 +2,13 @@ import { and, eq, notInArray, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { TRANSITIONS, isTerminalStatus } from '../../../src/domain/jobs/transitions';
 import type { JobStatus } from '../../../src/domain/jobs/types';
+import {
+  SKILL_IDS,
+  skillsSummary,
+  TRANSPORTS,
+  TRAVEL_LIMITS_KM,
+  type Transport,
+} from '../../../src/domain/providers/skills';
 import type { ProviderType } from '../../../src/domain/providers/types';
 import type { GoogleVerifier } from '../admin/google';
 import { callerOf, type Caller } from '../auth';
@@ -32,6 +39,32 @@ const FINISHED = (Object.keys(TRANSITIONS) as JobStatus[]).filter(isTerminalStat
 
 type UserRow = typeof users.$inferSelect;
 
+type ProfileBody = {
+  type: ProviderType;
+  businessName?: string;
+  skills: string[];
+  experienceYears: number;
+  transport: Transport;
+  base: { lat: number; lng: number };
+  baseDescription: string;
+  travelKm: number;
+};
+
+/**
+ * Whether a provider has filled in profile v2. Profiles from before it are
+ * asked again (nextStep) and aren't offered jobs until then.
+ */
+export function profileComplete(p: typeof providers.$inferSelect) {
+  return (
+    !!p.skills?.length &&
+    p.baseLat !== null &&
+    p.baseLng !== null &&
+    p.travelKm !== null &&
+    p.transport !== null &&
+    p.experienceYears !== null
+  );
+}
+
 /**
  * What the app needs to know about the signed-in account, including the
  * next thing it must ask for before the account can be used.
@@ -43,7 +76,7 @@ async function accountView(db: Database, user: UserRow) {
       : [];
   const nextStep = !user.phone
     ? 'add_phone'
-    : user.role === 'PROVIDER' && !provider
+    : user.role === 'PROVIDER' && !(provider && profileComplete(provider))
       ? 'provider_profile'
       : null;
   return {
@@ -58,6 +91,15 @@ async function accountView(db: Database, user: UserRow) {
           type: provider.type,
           businessName: provider.businessName,
           specialty: provider.specialty,
+          skills: provider.skills ?? [],
+          experienceYears: provider.experienceYears,
+          transport: provider.transport,
+          base:
+            provider.baseLat !== null && provider.baseLng !== null
+              ? { lat: provider.baseLat, lng: provider.baseLng }
+              : null,
+          baseDescription: provider.baseDescription,
+          travelKm: provider.travelKm,
           verification: provider.verification,
           // Shown to the mechanic, e.g. why the profile was rejected.
           verificationNote: provider.verificationNote,
@@ -255,21 +297,40 @@ export function registerAccountRoutes(
   );
 
   /**
-   * A mechanic's or garage's profile. New profiles wait for Fundi-X to
-   * verify them (admin portal) before they're offered any job.
+   * A mechanic's or garage's profile (docs/mechanic-onboarding.md,
+   * "Profile"). New profiles wait for Fundi-X to verify them (admin portal)
+   * before they're offered any job.
    */
-  app.put<{ Body: { type: ProviderType; businessName?: string; specialty: string } }>(
+  app.put<{ Body: ProfileBody }>(
     '/me/provider',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['type', 'specialty'],
+          required: ['type', 'skills', 'experienceYears', 'transport', 'base', 'baseDescription', 'travelKm'],
           additionalProperties: false,
           properties: {
             type: { enum: ['mechanic', 'garage'] },
             businessName: { type: 'string', maxLength: 100 },
-            specialty: { type: 'string', minLength: 2, maxLength: 100 },
+            skills: {
+              type: 'array',
+              minItems: 1,
+              uniqueItems: true,
+              items: { enum: SKILL_IDS },
+            },
+            experienceYears: { type: 'integer', minimum: 0, maximum: 60 },
+            transport: { enum: TRANSPORTS.map(t => t.id) },
+            base: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['lat', 'lng'],
+              properties: {
+                lat: { type: 'number', minimum: -90, maximum: 90 },
+                lng: { type: 'number', minimum: -180, maximum: 180 },
+              },
+            },
+            baseDescription: { type: 'string', minLength: 2, maxLength: 100 },
+            travelKm: { enum: [...TRAVEL_LIMITS_KM] },
           },
         },
       },
@@ -282,16 +343,31 @@ export function registerAccountRoutes(
       if (!user.phone) {
         throw new ConflictError('phone_required', 'Add your M-Pesa number first');
       }
-      const { type, specialty } = request.body;
-      const businessName = request.body.businessName?.trim() || null;
+      const body = request.body;
+      const baseDescription = body.baseDescription.trim();
+      if (baseDescription.length < 2) {
+        throw new BadRequestError('Describe where you work from, e.g. "Kilimani, near Yaya Centre"');
+      }
+      // Kept in the catalogue's order, so the summary reads the same for everyone.
+      const skills = SKILL_IDS.filter(id => body.skills.includes(id));
+      const profile = {
+        type: body.type,
+        businessName: body.businessName?.trim() || null,
+        specialty: skillsSummary(skills),
+        skills,
+        experienceYears: body.experienceYears,
+        transport: body.transport,
+        baseLat: body.base.lat,
+        baseLng: body.base.lng,
+        baseDescription,
+        travelKm: body.travelKm,
+      };
       const at = new Date();
       await db
         .insert(providers)
         .values({
           userId: user.id,
-          type,
-          businessName,
-          specialty: specialty.trim(),
+          ...profile,
           payoutPhone: user.phone,
           verification: 'PENDING',
           createdAt: at,
@@ -302,9 +378,7 @@ export function registerAccountRoutes(
         .onConflictDoUpdate({
           target: providers.userId,
           set: {
-            type,
-            businessName,
-            specialty: specialty.trim(),
+            ...profile,
             verification: sql`case when ${providers.verification} = 'REJECTED' then 'PENDING' else ${providers.verification} end`,
             updatedAt: at,
           },

@@ -1,5 +1,7 @@
 # Garages as providers: parked for later
 
+Business model idea for later: hub-model.md (Fundi-X Hubs, parked 2026-10-27).
+
 Status: **hidden in the app on purpose** (decided 2026-10-22). Fundi-X
 starts with mobile mechanics only; garage businesses come later.
 
