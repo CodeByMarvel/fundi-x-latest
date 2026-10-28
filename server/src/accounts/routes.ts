@@ -321,6 +321,18 @@ export function registerAccountRoutes(
           },
         },
       },
+      // App builds from before profile v2 send a typed-in specialty instead
+      // of skills; tell those testers to update rather than show them a
+      // schema error.
+      preValidation: async request => {
+        const body = request.body as Record<string, unknown> | undefined;
+        if (body && 'specialty' in body && !('skills' in body)) {
+          throw new ConflictError(
+            'app_update_required',
+            'This version of the Fundi-X app is out of date. Please install the latest one to finish your profile.',
+          );
+        }
+      },
     },
     async request => {
       const { user } = await me(db, request);

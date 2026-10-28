@@ -284,6 +284,14 @@ describe('mechanic profile', () => {
     expect(res.json().provider).toMatchObject({ type: 'garage', travelKm: 15, verification: 'VERIFIED' });
   });
 
+  it('asks for an app update when an old app sends a typed-in specialty', async () => {
+    const { headers } = await signedIn(undefined, 'provider');
+    await call('PUT', '/me/phone', headers, { phone: '0722000111' });
+    const res = await call('PUT', '/me/provider', headers, { type: 'mechanic', specialty: 'Brakes' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ error: 'app_update_required', message: expect.stringContaining('latest') });
+  });
+
   it('is only for mechanic accounts', async () => {
     const { headers } = await signedIn();
     await call('PUT', '/me/phone', headers, { phone: '0712345678' });
